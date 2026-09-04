@@ -77,8 +77,14 @@ with a Value, a Status, and a Note that defines what the field actually means
 Status is one of:
 
 - `found` - decoded successfully; value shown.
-- `present on card, not decoded` - the file was read but this tool doesn't
-  (yet) decode its content into a value.
+- `present on card, but not provisioned (blank)` - the file exists and was
+  read, but its content is all `0xFF` - the carrier simply never wrote
+  anything into it. Very common for `MSISDN` in particular: many operators
+  don't store the phone number on the card at all.
+- `present on card, not decoded` - the file was read, has real (non-blank)
+  content, but this tool's decoder doesn't recognize its exact layout. The
+  Value column still shows the raw bytes in hex in this case, rather than
+  leaving it blank, so there's always something to inspect.
 - `not read (no PIN)` - acquisition was ICCID-only; this field needs a PIN.
 - `not present on card` - a full acquisition was done but this file/value
   wasn't found or the card doesn't have it.

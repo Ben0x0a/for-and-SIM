@@ -74,6 +74,25 @@ int main() {
     adnFile.sha256 = "cafef00d";
     result.files.push_back(adnFile);
 
+    ExtractedFile msisdnFile;
+    msisdnFile.path = "MF/DF_TELECOM/MSISDN";
+    msisdnFile.fileId = 0x6F40;
+    msisdnFile.name = "MSISDN";
+    msisdnFile.structure = apdu::FileStructure::LinearFixed;
+    msisdnFile.records = {{0x51, 0x55, 0x21, 0x43, 0x65, 0xF7}}; // BCD digits only, for size
+    msisdnFile.sha256 = "aabbccdd";
+    msisdnFile.interpretedValue = "+15551234567"; // as decodeMsisdnRecord would produce
+    result.files.push_back(msisdnFile);
+
+    ExtractedFile spnFile;
+    spnFile.path = "MF/DF_GSM/SPN";
+    spnFile.fileId = 0x6F46;
+    spnFile.name = "SPN";
+    spnFile.structure = apdu::FileStructure::Transparent;
+    spnFile.rawData = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF}; // never provisioned by the carrier
+    spnFile.sha256 = "00000000";
+    result.files.push_back(spnFile);
+
     ExtractedFile kcFile;
     kcFile.path = "MF/DF_GSM/Kc";
     kcFile.fileId = 0x6F20;
@@ -127,6 +146,10 @@ int main() {
     check(html.find("Container information") != std::string::npos, "html report has Container information subsection");
     check(html.find("International Mobile Subscriber Identity") != std::string::npos,
           "html report's interpreted values include a plain-language IMSI definition");
+    check(html.find("+15551234567") != std::string::npos,
+          "html report shows the decoded MSISDN value");
+    check(html.find("not provisioned (blank)") != std::string::npos,
+          "html report distinguishes a blank/unprovisioned SPN from a decode failure");
     check(html.find("content withheld from disk") != std::string::npos,
           "html report flags the sensitive Kc file");
 

@@ -138,7 +138,7 @@ void writeHtmlReport(const AcquisitionResult& result, const std::string& htmlPat
     for (const auto& field : buildKeyResults(result)) {
         bool found = field.status == "found";
         html << "<tr><td>" << field.name << "</td><td><code>"
-             << (found ? escapeHtml(field.value) : "") << "</code></td>"
+             << escapeHtml(field.value) << "</code></td>"
              << "<td class=\"" << (found ? "ok" : "") << "\">" << field.status << "</td>"
              << "<td>" << escapeHtml(field.note) << "</td></tr>";
     }

@@ -15,6 +15,28 @@ std::string atrHex(const std::vector<uint8_t>& atr) {
     return hex;
 }
 
+namespace {
+
+bool isAllFF(const std::vector<uint8_t>& data) {
+    if (data.empty()) return false;
+    for (uint8_t b : data) {
+        if (b != 0xFF) return false;
+    }
+    return true;
+}
+
+bool allRecordsBlank(const ExtractedFile& f) {
+    if (!f.records.empty()) {
+        for (auto& r : f.records) {
+            if (!isAllFF(r)) return false;
+        }
+        return true;
+    }
+    return isAllFF(f.rawData);
+}
+
+} // namespace
+
 const char* chvResultString(ChvResult r) {
     switch (r) {
         case ChvResult::Correct: return "correct";
@@ -99,8 +121,21 @@ std::vector<KeyResultField> buildKeyResults(const AcquisitionResult& result) {
             if (match->interpretedValue.has_value() && !match->interpretedValue->empty()) {
                 field.value = *match->interpretedValue;
                 field.status = "found";
+            } else if (allRecordsBlank(*match)) {
+                // Very common and normal, especially for MSISDN: many
+                // carriers never provision this file on the SIM at all - an
+                // all-0xFF record is "never written", not a decode failure.
+                field.status = "present on card, but not provisioned (blank)";
             } else {
                 field.status = "present on card, not decoded";
+                // Still show *something* rather than leaving the value blank:
+                // the raw bytes, so the value is visible even when this
+                // tool's decoder doesn't recognize the card's exact layout.
+                if (!match->records.empty()) {
+                    field.value = atrHex(match->records.front());
+                } else if (!match->rawData.empty()) {
+                    field.value = atrHex(match->rawData);
+                }
             }
         } else if (field.name != "ICCID" && result.mode == AcquisitionMode::IccidOnly) {
             field.status = "not read (no PIN)";
