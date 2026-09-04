@@ -1,5 +1,7 @@
 # For&SIM
 
+<img src="assets/forandsim_icon_preview.png" width="96" height="96" alt="For&SIM icon">
+
 A SIM/USIM forensic acquisition tool for digital forensics education, originally built
 for a classroom setting but usable by anyone who wants to learn how SIM/USIM forensic
 acquisition works.
@@ -118,6 +120,30 @@ depth cap (non-standard DF nesting stops after 3 levels), and an anomaly cap
 (more than ~8 hits in one 512-id scan is treated as the card mis-answering
 `SELECT`, not as 8 genuine hidden files, and stops that scan early with a
 warning).
+
+## Does acquisition (or the brute-force scan) wear out the card?
+
+No, for a concrete hardware reason: a SIM's persistent storage is EEPROM/flash,
+which only wears out from *writes* (each write/erase cycle slightly degrades
+the cell; cards are typically rated for 100,000-500,000+ cycles) - **reads
+cost it nothing**, no matter how many. `SELECT`, `READ BINARY`, `READ RECORD`
+and `GET RESPONSE` - everything the brute-force scan does, even across
+thousands of probed ids - are pure reads with zero effect on the card's write
+endurance. This holds regardless of how long the scan runs or how many
+non-standard ids it tries.
+
+The one exception, as covered above, is `VERIFY CHV` (the PIN check): it does
+write a few bits (the retry counter) on every attempt, success or failure.
+That's one tiny write per acquisition run - far less wear than a single normal
+phone boot-and-unlock cycle, and nowhere near a level that matters against the
+card's rated endurance.
+
+The real risk from a wrong PIN isn't physical wear, it's a **logical
+lockout**: enough wrong CHV1 attempts blocks that PIN until the PUK is
+entered (which this tool deliberately doesn't support - see "Sensitive
+values" below and the Read-only guarantee section above). That's why
+`--check-pin`/"Check PIN status" and the attempts-remaining warnings exist -
+to prevent that specific risk, not a wear-and-tear one.
 
 ## Sensitive values are never written to disk
 

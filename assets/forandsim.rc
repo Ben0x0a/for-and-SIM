@@ -1,0 +1,2 @@
+// Windows resource script: embeds the app icon into forandsim.exe.
+IDI_ICON1 ICON "forandsim.ico"

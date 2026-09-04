@@ -86,6 +86,12 @@ if(FORANDSIM_BUILD_GUI)
 endif()
 
 set(FORANDSIM_TARGET_SOURCES src/main.cpp)
+if(WIN32)
+  # Embeds assets/forandsim.ico as the .exe's icon (CMake compiles .rc files
+  # automatically via the platform's resource compiler when present in a
+  # Windows target's sources).
+  list(APPEND FORANDSIM_TARGET_SOURCES assets/forandsim.rc)
+endif()
 
 if(FORANDSIM_BUILD_GUI)
   add_library(forandsim_gui STATIC
