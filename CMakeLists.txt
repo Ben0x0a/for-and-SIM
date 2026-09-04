@@ -125,19 +125,10 @@ endif()
 if(WIN32 AND FORANDSIM_BUILD_GUI)
   add_executable(forandsim WIN32 ${FORANDSIM_TARGET_SOURCES})
   if(MSVC)
-    # /MT above means we intend the static CRT (LIBCMT) throughout, but a
-    # vcpkg-provided static lib can still declare MSVCRT (the dynamic CRT) as
-    # its preferred default lib, producing an LNK4098 conflict warning.
-    # Explicitly drop MSVCRT from the defaults so LIBCMT wins outright,
-    # instead of leaving the ambiguity for the linker to warn about.
-    set_target_properties(forandsim PROPERTIES
-      LINK_FLAGS "/ENTRY:mainCRTStartup /NODEFAULTLIB:MSVCRT")
+    set_target_properties(forandsim PROPERTIES LINK_FLAGS "/ENTRY:mainCRTStartup")
   endif()
 else()
   add_executable(forandsim ${FORANDSIM_TARGET_SOURCES})
-  if(MSVC)
-    set_target_properties(forandsim PROPERTIES LINK_FLAGS "/NODEFAULTLIB:MSVCRT")
-  endif()
 endif()
 target_link_libraries(forandsim PRIVATE forandsim_cli)
 if(FORANDSIM_BUILD_GUI)
