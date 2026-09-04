@@ -1,0 +1,70 @@
+name: Build
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bootstrap vcpkg
+        run: |
+          git clone https://github.com/microsoft/vcpkg C:\vcpkg
+          C:\vcpkg\bootstrap-vcpkg.bat
+
+      - name: Install SDL2 (static triplet)
+        run: C:\vcpkg\vcpkg.exe install sdl2:x64-windows-static
+
+      - name: Configure
+        run: >
+          cmake -S . -B build
+          -DCMAKE_TOOLCHAIN_FILE=C:\vcpkg\scripts\buildsystems\vcpkg.cmake
+          -DVCPKG_TARGET_TRIPLET=x64-windows-static
+          -DCMAKE_BUILD_TYPE=Release
+          -DFORANDSIM_BUILD_GUI=ON
+
+      - name: Build
+        run: cmake --build build --config Release --parallel
+
+      - name: Run output smoke test
+        run: ctest --test-dir build -C Release --output-on-failure
+
+      - name: Stage portable artifact
+        run: |
+          mkdir dist
+          copy build\Release\forandsim.exe dist\
+          copy README.md dist\
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: forandsim-windows-x64
+          path: dist/
+
+      - name: Create GitHub release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/forandsim.exe
+
+  linux-compile-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install PC/SC-lite dev headers
+        run: sudo apt-get update && sudo apt-get install -y libpcsclite-dev
+
+      - name: Configure (CLI-only compile check)
+        run: cmake -S . -B build -DFORANDSIM_BUILD_GUI=OFF
+
+      - name: Build
+        run: cmake --build build --parallel
+
+      - name: Run output smoke test
+        run: ctest --test-dir build --output-on-failure
