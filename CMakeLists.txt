@@ -28,7 +28,9 @@ add_library(forandsim_core STATIC
   src/core/file_walker.cpp
   src/core/acquisition_engine.cpp
   src/core/hashing.cpp
+  src/core/time_utils.cpp
   src/core/output/report_common.cpp
+  src/core/output/output_paths.cpp
   src/core/output/zip_writer.cpp
   src/core/output/html_report.cpp
   third_party/miniz.c
@@ -105,7 +107,19 @@ if(FORANDSIM_BUILD_GUI)
   endif()
 endif()
 
-add_executable(forandsim ${FORANDSIM_TARGET_SOURCES})
+# On Windows, a GUI-capable build links as a WINDOWS-subsystem exe so
+# double-clicking it doesn't spawn a console window that can't be closed
+# without killing the app. main.cpp re-attaches to the caller's console when
+# invoked with CLI arguments (see AttachConsole there). MSVC's WINDOWS
+# subsystem otherwise expects a WinMain, so force the normal CRT entry point.
+if(WIN32 AND FORANDSIM_BUILD_GUI)
+  add_executable(forandsim WIN32 ${FORANDSIM_TARGET_SOURCES})
+  if(MSVC)
+    set_target_properties(forandsim PROPERTIES LINK_FLAGS "/ENTRY:mainCRTStartup")
+  endif()
+else()
+  add_executable(forandsim ${FORANDSIM_TARGET_SOURCES})
+endif()
 target_link_libraries(forandsim PRIVATE forandsim_cli)
 if(FORANDSIM_BUILD_GUI)
   target_compile_definitions(forandsim PRIVATE FORANDSIM_BUILD_GUI=1)

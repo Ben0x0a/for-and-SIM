@@ -1,10 +1,25 @@
 #include "file_walker.h"
 
+#include <algorithm>
 #include <cstdio>
 
 #include "hashing.h"
 
 namespace forandsim {
+
+namespace {
+// Beyond this many hits in a single 512-id scan, a card is almost certainly
+// mis-answering SELECT (returning "success" for ids that don't really exist)
+// rather than genuinely hiding this many files/directories.
+constexpr size_t kAnomalyThreshold = 8;
+constexpr int kMaxUnknownDfDepth = 3;
+} // namespace
+
+void checkCancellation(const AcquisitionOptions& options) {
+    if (options.cancelRequested && options.cancelRequested->load()) {
+        throw AcquisitionCancelled{};
+    }
+}
 
 apdu::FileInfo selectPath(CardSession& session, const std::vector<uint16_t>& path) {
     apdu::FileInfo info = session.selectFile(catalog::kMF);
@@ -72,8 +87,11 @@ void readKnownEfs(CardSession& session,
                    const std::vector<uint16_t>& parentIds,
                    const std::string& parentPath,
                    std::vector<ExtractedFile>& out,
+                   const AcquisitionOptions& options,
                    const ProgressCallback& progress) {
     for (auto& [id, name] : efs) {
+        checkCancellation(options);
+
         apdu::FileInfo info = session.selectFile(id);
         if (info.type != apdu::FileType::EF) {
             apdu::ApduResponse lastResp = session.lastResponse();
@@ -105,8 +123,11 @@ void walkDfTree(CardSession& session,
                  const std::vector<uint16_t>& parentIds,
                  const std::string& parentPath,
                  std::vector<ExtractedFile>& out,
+                 const AcquisitionOptions& options,
                  const ProgressCallback& progress) {
     for (const auto& node : nodes) {
+        checkCancellation(options);
+
         std::vector<uint16_t> nodePath = parentIds;
         nodePath.push_back(node.id);
 
@@ -123,21 +144,77 @@ void walkDfTree(CardSession& session,
             progress("Entering " + nodePathStr);
         }
 
-        readKnownEfs(session, node.ownEfs, nodePath, nodePathStr, out, progress);
+        readKnownEfs(session, node.ownEfs, nodePath, nodePathStr, out, options, progress);
 
-        std::vector<uint16_t> foundEfs;
-        for (auto& [id, name] : node.ownEfs) {
-            foundEfs.push_back(id);
+        if (options.scanNonStandardFiles) {
+            std::vector<uint16_t> foundEfs;
+            for (auto& [id, name] : node.ownEfs) {
+                foundEfs.push_back(id);
+            }
+            selectPath(session, nodePath); // re-enter DF (readKnownEfs left current EF selected)
+            probeUnknownEfs(session, foundEfs, nodePath, nodePathStr, out, options, progress);
+
+            std::vector<uint16_t> knownChildDfs;
+            for (auto& child : node.children) knownChildDfs.push_back(child.id);
+            selectPath(session, nodePath); // re-enter DF (probeUnknownEfs left current EF selected)
+            probeUnknownDfs(session, knownChildDfs, nodePath, nodePathStr, out, options, progress);
         }
-        selectPath(session, nodePath); // re-enter DF (readKnownEfs left current EF selected)
-        probeUnknownEfs(session, foundEfs, nodePath, nodePathStr, out, progress);
 
-        std::vector<uint16_t> knownChildDfs;
-        for (auto& child : node.children) knownChildDfs.push_back(child.id);
-        selectPath(session, nodePath); // re-enter DF (probeUnknownEfs left current EF selected)
-        probeUnknownDfs(session, knownChildDfs, nodePath, nodePathStr, out, progress);
+        walkDfTree(session, node.children, nodePath, nodePathStr, out, options, progress);
+    }
+}
 
-        walkDfTree(session, node.children, nodePath, nodePathStr, out, progress);
+void probeUnknownEfs(CardSession& session,
+                      const std::vector<uint16_t>& alreadyFound,
+                      const std::vector<uint16_t>& parentIds,
+                      const std::string& parentPath,
+                      std::vector<ExtractedFile>& out,
+                      const AcquisitionOptions& options,
+                      const ProgressCallback& progress) {
+    auto isKnown = [&](uint16_t id) {
+        for (uint16_t f : alreadyFound) {
+            if (f == id) return true;
+        }
+        return false;
+    };
+
+    size_t foundThisScan = 0;
+    for (uint32_t base : {0x4F00u, 0x6F00u}) {
+        for (uint32_t offset = 0; offset <= 0xFF; ++offset) {
+            if ((offset & 0x1F) == 0) checkCancellation(options);
+
+            uint16_t id = uint16_t(base + offset);
+            if (isKnown(id)) continue;
+
+            apdu::FileInfo info = session.selectFile(id);
+            if (info.type != apdu::FileType::EF) {
+                continue;
+            }
+
+            ++foundThisScan;
+            if (foundThisScan > kAnomalyThreshold) {
+                if (progress) {
+                    progress("WARNING: " + parentPath + " returned an unusually large number of "
+                             "non-standard EFs as 'valid' - this usually means the card answers "
+                             "SELECT successfully for almost any id, not that this many files "
+                             "genuinely exist. Stopping this probe early.");
+                }
+                selectPath(session, parentIds);
+                return;
+            }
+
+            ExtractedFile file;
+            char idHex[8];
+            std::snprintf(idHex, sizeof(idHex), "%04X", id);
+            file.name = std::string("UNKNOWN_") + idHex;
+            file.path = parentPath + "/" + file.name;
+            file.dfPath = parentIds;
+            readSelectedEf(session, info, file, file.path, progress);
+            if (progress) {
+                progress("Found non-standard file " + file.path);
+            }
+            out.push_back(std::move(file));
+        }
     }
 }
 
@@ -146,23 +223,59 @@ void probeUnknownDfs(CardSession& session,
                       const std::vector<uint16_t>& parentIds,
                       const std::string& parentPath,
                       std::vector<ExtractedFile>& out,
-                      const ProgressCallback& progress) {
+                      const AcquisitionOptions& options,
+                      const ProgressCallback& progress,
+                      int depth) {
+    if (depth >= kMaxUnknownDfDepth) {
+        if (progress) {
+            progress("Reached max non-standard DF nesting depth under " + parentPath +
+                      "; not probing any deeper here.");
+        }
+        return;
+    }
+
     auto isKnown = [&](uint16_t id) {
         for (uint16_t f : alreadyFoundDfs) {
             if (f == id) return true;
         }
         return false;
     };
+    auto isAncestor = [&](uint16_t id) {
+        return std::find(parentIds.begin(), parentIds.end(), id) != parentIds.end();
+    };
 
+    size_t foundThisScan = 0;
     for (uint32_t base : {0x5F00u, 0x7F00u}) {
         for (uint32_t offset = 0; offset <= 0xFF; ++offset) {
+            if ((offset & 0x1F) == 0) checkCancellation(options);
+
             uint16_t id = uint16_t(base + offset);
             if (isKnown(id)) continue;
+
+            if (isAncestor(id)) {
+                // The card just told us `id` is a valid DF here, but it's also
+                // one of our own ancestors in the current path - a select-any
+                // card would loop forever re-entering itself. Skip it.
+                selectPath(session, parentIds); // restore position, SELECT may have moved us
+                continue;
+            }
 
             apdu::FileInfo info = session.selectFile(id);
             if (info.type != apdu::FileType::DF && info.type != apdu::FileType::MF) {
                 selectPath(session, parentIds); // restore position before trying the next id
                 continue;
+            }
+
+            ++foundThisScan;
+            if (foundThisScan > kAnomalyThreshold) {
+                if (progress) {
+                    progress("WARNING: " + parentPath + " returned an unusually large number of "
+                             "non-standard DFs as 'valid' - this usually means the card answers "
+                             "SELECT successfully for almost any id, not that this many "
+                             "directories genuinely exist. Stopping this probe early.");
+                }
+                selectPath(session, parentIds);
+                return;
             }
 
             char idHex[8];
@@ -177,49 +290,11 @@ void probeUnknownDfs(CardSession& session,
             dfIdPath.push_back(id);
 
             // Fully unknown DF: no catalog EFs to read, just probe everything.
-            probeUnknownEfs(session, {}, dfIdPath, dfPath, out, progress);
+            probeUnknownEfs(session, {}, dfIdPath, dfPath, out, options, progress);
             selectPath(session, dfIdPath);
-            probeUnknownDfs(session, {}, dfIdPath, dfPath, out, progress);
+            probeUnknownDfs(session, {}, dfIdPath, dfPath, out, options, progress, depth + 1);
 
             selectPath(session, parentIds); // back to the parent before continuing the scan
-        }
-    }
-}
-
-void probeUnknownEfs(CardSession& session,
-                      const std::vector<uint16_t>& alreadyFound,
-                      const std::vector<uint16_t>& parentIds,
-                      const std::string& parentPath,
-                      std::vector<ExtractedFile>& out,
-                      const ProgressCallback& progress) {
-    auto isKnown = [&](uint16_t id) {
-        for (uint16_t f : alreadyFound) {
-            if (f == id) return true;
-        }
-        return false;
-    };
-
-    for (uint32_t base : {0x4F00u, 0x6F00u}) {
-        for (uint32_t offset = 0; offset <= 0xFF; ++offset) {
-            uint16_t id = uint16_t(base + offset);
-            if (isKnown(id)) continue;
-
-            apdu::FileInfo info = session.selectFile(id);
-            if (info.type != apdu::FileType::EF) {
-                continue;
-            }
-
-            ExtractedFile file;
-            char idHex[8];
-            std::snprintf(idHex, sizeof(idHex), "%04X", id);
-            file.name = std::string("UNKNOWN_") + idHex;
-            file.path = parentPath + "/" + file.name;
-            file.dfPath = parentIds;
-            readSelectedEf(session, info, file, file.path, progress);
-            if (progress) {
-                progress("Found non-standard file " + file.path);
-            }
-            out.push_back(std::move(file));
         }
     }
 }

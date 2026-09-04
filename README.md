@@ -20,19 +20,22 @@ Repository: [https://github.com/Ben0x0a/for-and-SIM](https://github.com/Ben0x0a/
   catalog elementary file, plus a brute-force probe of the non-standard EF-id
   ranges (`0x4Fxx`/`0x6Fxx`) *and* the DF-id ranges (`0x5Fxx`/`0x7Fxx`) at every
   level, recursively exploring any undocumented DF it finds.
-- Produces per acquisition:
+- Produces, in `<output dir>/<case>/` (a dedicated subfolder per case, so
+  multiple acquisitions in the same output directory never mix their files):
   - `<case>.zip` - the evidence container: raw bytes of every acquired file under
-    `files/`, a `values.json` with decoded values for the handful of EFs that are
-    pure values (ICCID, IMSI), a `manifest.json` with case metadata, tool
-    provenance, chain of custody and a SHA-256 per file, and a human-readable
-    `for-and-sim-meta.txt` summary of all of the above (itself hashed and recorded
-    in the manifest).
+    `files/`, a `values.json` with a fixed set of decoded identity values
+    (ICCID, IMSI, MSISDN, SPN, FPLMN, MCC/MNC/LAC from the last registered
+    cell) always present with an explicit status even when empty (e.g. no PIN
+    supplied), a `manifest.json` with case metadata, tool provenance, chain of
+    custody and a SHA-256 per file, and a human-readable `for-and-sim-meta.txt`
+    summary of all of the above (itself hashed and recorded in the manifest).
   - `<case>.zip.sha256` - a sidecar file with the SHA-256 of the zip itself. This
     can't live inside the zip (writing it in would change the zip and invalidate
     the hash), so it's external, same as disk-imaging tools do.
   - `<case>.html` - a standalone, self-contained chain-of-custody report (case
     info, timestamps, workstation, tool version/repo, the zip's own hash,
-    per-file hashes, extracted-file tree, full acquisition log).
+    key results, per-file hashes, extracted-file tree, full ISO-8601-timestamped
+    acquisition log).
 
   See [docs/REPORT.md](docs/REPORT.md) for a field-by-field explanation of
   everything in the zip and the HTML report, and
@@ -75,6 +78,33 @@ Two more safeguards, unrelated to the PIN:
   status word other than the ordinary "file not found" is also logged as a
   warning, since it can indicate a CLA/class incompatibility rather than genuine
   absence.
+- **PIN redaction**: if a PIN was entered, the report says so (`****** —
+  educational purpose, PIN value not disclosed`) rather than silently omitting
+  it; if no PIN was entered, nothing PIN-related appears at all.
+- **No PUK support, on purpose**: `UNBLOCK CHV` (PUK entry) would unblock the
+  card *and* set a brand-new PIN chosen by the operator — unlike `VERIFY CHV`,
+  that's a genuine, permanent write to the card's security state, not just a
+  retry-counter decrement. That's out of scope for a tool built around a
+  read-only guarantee, so it's simply not implemented; if it were, it would need
+  its own explicit confirmation step and would be logged as the card-state-
+  changing action it is, separate from the rest of the (read-only) acquisition.
+- **Overwrite protection**: if `<output dir>/<case>/` already has results in it,
+  the CLI refuses (pass `--force` to proceed) and the GUI asks for confirmation,
+  rather than silently overwriting a previous acquisition.
+
+## Non-standard/hidden file scanning
+
+Scanning is thorough by default but can be slow, especially on a slow reader or
+a card that mishandles `SELECT` (a small number of test/simulator cards answer
+"success" for almost any file id, which without safeguards would make the scan
+explore an enormous number of phantom files). Three protections are built in:
+a cycle guard (never re-enters an id that's already an ancestor of the current
+position), a depth cap (non-standard DF nesting stops after 3 levels), and an
+anomaly cap (more than ~8 hits in one 512-id scan is treated as the card
+mis-answering `SELECT`, not as 8 genuine hidden files, and stops that scan
+early with a warning). If it's still too slow for your reader, turn scanning
+off entirely with `--no-scan-hidden` (CLI) or the GUI checkbox — you'll still
+get every catalog file, just not the brute-force hidden-file search.
 
 ## Building
 
@@ -115,10 +145,15 @@ forandsim
 ![For&SIM GUI](docs/screenshots/gui-overview.png)
 
 Check "I am authorized to examine this exhibit", fill in case identifier,
-piece/exhibit number, operator, notes and output directory, pick a reader,
+piece/exhibit number, operator, notes and output directory (type a path, click
+"Browse...", or drag and drop a folder onto the window), pick a reader,
 optionally click "Check PIN status" first, then either enter the PIN or check
-"Extract without PIN (ICCID only)", and click Start. "Verify" is checked by
-default (uncheck it for a quicker but less thoroughly confirmed acquisition).
+"Extract without PIN (ICCID only)", and click Start. "Verify" and "Scan for
+non-standard/hidden files" are both checked by default (uncheck either for a
+quicker but less thorough acquisition). While running, a "Stop" button appears
+next to the progress text — it cancels cleanly at the next checkpoint and still
+writes out whatever was read so far, rather than a hard kill. If results already
+exist in the target folder, a confirmation dialog appears before overwriting.
 
 ### CLI (headless)
 
@@ -128,8 +163,13 @@ forandsim --check-pin --reader "ACS ACR38U-CCID 0"
 forandsim --reader "ACS ACR38U-CCID 0" --case CASE-2026-014 --piece P1 \
           --operator "J. Examiner" --output ./out --confirm-authorized --pin 1234
 forandsim --reader "ACS ACR38U-CCID 0" --case CASE-2026-014 --piece P1 \
-          --operator "J. Examiner" --output ./out --confirm-authorized --no-pin --no-verify
+          --operator "J. Examiner" --output ./out --confirm-authorized --no-pin \
+          --no-verify --no-scan-hidden
 ```
+
+Results land in `./out/CASE-2026-014/`. Re-running with the same `--case` and
+`--output` refuses (existing results would be overwritten) unless you add
+`--force`.
 
 ## Ethics note
 
@@ -149,9 +189,10 @@ real evidence.
   (`0x5Fxx`/`0x7Fxx`) ranges per level, not the full 16-bit id space; a full scan
   would be far slower for little additional coverage. This does mean a file
   deliberately hidden outside those conventional ranges would be missed.
-- If a `SCardTransmit` fails mid-walk (card removed, reader glitch), the whole
-  acquisition throws and nothing is written to disk — a partial acquisition is
-  not currently preserved with an "incomplete" flag.
+- An operator-requested Stop is handled gracefully (partial results are still
+  written, with `cancelled: true` in the manifest). An *unexpected* hardware
+  error mid-walk (card removed, reader glitch — a `SCardTransmit` failure) is
+  not: the whole acquisition throws and nothing is written to disk.
 - Workstation timestamps are the local system clock, not validated against any
   trusted time source (acceptable for an offline educational tool, but worth
   knowing if this were ever used for real casework).

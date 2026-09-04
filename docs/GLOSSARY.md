@@ -52,19 +52,44 @@ with `SELECT` commands, much like folders and files on a disk:
 - **PLMN** (Public Land Mobile Network) - a network identifier; `EF_PLMNsel`/
   `EF_FPLMN`/`EF_HPLMN` list preferred/forbidden/home networks.
 - **LOCI** (Location Information) - the last known cell/location area the card
-  registered on - potentially forensically significant.
+  registered on - potentially forensically significant. For&SIM decodes its
+  MCC/MNC/LAC (see "Cell/location identifiers" below).
 - **ADN/FDN/SDN/BDN** - phonebook-type EFs: Abbreviated Dialling Numbers, Fixed
   Dialling Numbers, Service Dialling Numbers, Barred Dialling Numbers.
 - **SMS/SMSP/SMSS/SMSR** - stored text messages and related SMS parameters/status.
 - **ACC/ECC** - Access Control Class and Emergency Call Codes.
+
+## Cell/location identifiers
+
+- **MCC** (Mobile Country Code) - identifies the country of the network the card
+  last registered on (e.g. `310` = USA). Part of every PLMN identifier.
+- **MNC** (Mobile Network Code) - identifies the specific operator within that
+  country (2 or 3 digits, alongside the MCC).
+- **PLMN** (Public Land Mobile Network) - the MCC+MNC pair together identify one
+  network; see also **PLMN** under "Values commonly found on the card" above.
+- **LAC** (Location Area Code) - identifies a location area (a group of cells)
+  within 2G/3G; comes from `EF_LOCI`, which For&SIM decodes.
+- **TAC** (Tracking Area Code) - the LTE/4G equivalent of a Location Area. Lives
+  in `EF_EPSLOCI` under the USIM ADF, which For&SIM cannot yet reach (needs an
+  AID-based `SELECT` - see the README's known limitations) - always reported as
+  "not accessible" rather than silently omitted.
+- **CID** (Cell ID) - identifies the specific cell (base station sector), not
+  just its location area. Classic `EF_LOCI`/`EF_EPSLOCI` don't store this at
+  all (only the Location/Tracking Area); reported as "not accessible" for that
+  structural reason, not a missing feature.
 
 ## PIN / security
 
 - **CHV1 / CHV2** (Card Holder Verification 1/2) - the technical names for what a
   phone UI calls "PIN1" and "PIN2". CHV1 gates most user data; this tool only ever
   touches CHV1.
-- **PUK** (PIN Unblock Key) - unblocks a CHV that's hit 0 remaining attempts. For&SIM
-  never uses a PUK - if a card is blocked, it stays blocked.
+- **PUK** (PIN Unblock Key) - unblocks a CHV that's hit 0 remaining attempts, via
+  the `UNBLOCK CHV` command, *and* sets a new PIN chosen by whoever enters it.
+  That makes it fundamentally different from `VERIFY CHV`: it's a real,
+  permanent write to the card, not just a retry-counter decrement. For&SIM
+  deliberately does not implement PUK support for that reason (see the
+  README's "Read-only guarantee" section) - if a card is blocked, it stays
+  blocked.
 - **Retry counter / attempts remaining** - the card tracks how many wrong CHV1
   guesses are left (usually starting at 3); it hits 0 and blocks the card if
   exhausted. For&SIM reads this counter before ever attempting a PIN.

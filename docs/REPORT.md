@@ -3,17 +3,21 @@
 Every acquisition produces four things. This document explains every field found in
 each of them. See [GLOSSARY.md](GLOSSARY.md) for what the abbreviations mean.
 
+All three live in `<output dir>/<case>/` - a dedicated subfolder per case, so
+running several acquisitions into the same output directory never mixes their
+files together:
+
 ```
-<case>.zip            evidence container
-<case>.zip.sha256     sidecar hash of the zip above
-<case>.html           human-readable report (open in any browser)
+<output dir>/<case>/<case>.zip            evidence container
+<output dir>/<case>/<case>.zip.sha256     sidecar hash of the zip above
+<output dir>/<case>/<case>.html           human-readable report (open in any browser)
 ```
 
 Inside the zip:
 
 ```
 files/<DF path>/<name>.bin   raw bytes of every acquired file
-values.json                  decoded values for "pure value" files
+values.json                  fixed set of decoded identity values, always present
 manifest.json                machine-readable record of everything below
 for-and-sim-meta.txt         human-readable summary of the manifest
 ```
@@ -35,9 +39,26 @@ for-and-sim-meta.txt         human-readable summary of the manifest
   file next to the zip. Verify it with `shasum -a 256 -c <case>.zip.sha256`.
 - **Chain of custody** - when the acquisition started/finished, which workstation
   (hostname + logged-in user) and which reader performed it, the card's raw ATR, its
-  ICCID, the acquisition mode (`ICCID only` vs `Full dump`), and - if a PIN was
-  used - the verification result and how many CHV1 attempts were left *before* the
-  attempt was made.
+  ICCID, the acquisition mode (`ICCID only` vs `Full dump`), whether the operator
+  cancelled it early (partial results), and - if a PIN was used - a redacted note
+  that a PIN was entered (`****** — educational purpose, PIN value not disclosed`),
+  the verification result, and how many CHV1 attempts were left *before* the
+  attempt was made. Nothing PIN-related appears at all if no PIN was entered.
+- **Key results** - a fixed set of identity fields (ICCID, IMSI, MSISDN, SPN,
+  FPLMN, MCC, MNC, LAC, TAC, CID), always listed in the same order regardless of
+  acquisition mode, each with a Value and a Status so an empty field is never
+  ambiguous:
+  - `found` - decoded successfully; value shown.
+  - `present on card, not decoded` - the file was read but this tool doesn't
+    (yet) decode its content into a value.
+  - `not read (no PIN)` - acquisition was ICCID-only; this field needs a PIN.
+  - `not present on card` - a full acquisition was done but this file/value
+    wasn't found or the card doesn't have it.
+  - `not accessible` (TAC/CID only) - these require `EF_EPSLOCI` under the USIM
+    ADF, which needs an AID-based `SELECT` this tool doesn't implement (see the
+    README's known limitations); the Note column says so.
+  - MCC/MNC/LAC come from `EF_LOCI` (last registered GSM/UMTS cell); TAC (LTE
+    tracking area) and CID (cell id) are not present in that classic file at all.
 - **Read-only / integrity guarantee** - explains that no write command is ever
   issued (see the main README's "Read-only guarantee" section), reports the ICCID
   re-read check (first read vs. a second read taken after the whole acquisition -
@@ -65,8 +86,11 @@ The same information as the HTML report, structured for machine parsing:
   `authorization_confirmed` (boolean - see the README's "Ethics note").
 - `chain_of_custody` - ISO-8601 UTC timestamps, workstation hostname/user, reader name.
 - `card` - `atr_hex` (space-separated hex bytes) and `iccid`.
-- `acquisition` - `mode` (`"iccid_only"` or `"full_dump"`), `pin_attempted`,
-  `pin_result` (`correct` / `incorrect` / `blocked` / `not_initialized` / `error`),
+- `acquisition` - `mode` (`"iccid_only"` or `"full_dump"`), `cancelled` (true if
+  the operator stopped it early), `pin_attempted`, `pin_value` (the fixed
+  redacted string if `pin_attempted`, else `null` - the real PIN is never
+  recorded anywhere), `pin_result`
+  (`correct` / `incorrect` / `blocked` / `not_initialized` / `error`),
   and `chv1_attempts_before_verify` (the retry counter read *before* the PIN was
   tried; `null` if it couldn't be determined).
 - `integrity` - `read_only_acquisition` (always `true`), the ICCID re-read hashes and
@@ -82,10 +106,20 @@ The same information as the HTML report, structured for machine parsing:
 
 ## `values.json`
 
-A flat map of file path to decoded value, for the handful of files whose entire
-content is one human-meaningful value rather than a structure worth keeping as raw
-bytes - currently ICCID and IMSI. Every acquired file still gets its raw bytes under
-`files/` regardless; this is a convenience view on top of that.
+```json
+{
+  "key_results": {
+    "ICCID": {"value": "8933...", "status": "found", "path": "MF/ICCID"},
+    "IMSI":  {"value": "", "status": "not read (no PIN)", "path": null},
+    "TAC":   {"value": "", "status": "not accessible", "path": null}
+  }
+}
+```
+
+One entry per field described in the HTML report's "Key results" section above
+(`value`, `status`, and `path` - the file path it came from, or `null` if there
+wasn't one). Every acquired file still gets its raw bytes under `files/`
+regardless of whether it made it into this fixed list.
 
 ## `for-and-sim-meta.txt`
 

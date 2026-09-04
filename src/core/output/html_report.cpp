@@ -95,14 +95,31 @@ void writeHtmlReport(const AcquisitionResult& result, const std::string& htmlPat
          << "<tr><td>Acquisition mode</td><td>"
          << (result.mode == AcquisitionMode::FullDump ? "Full dump (PIN verified)" : "ICCID only (no PIN)")
          << "</td></tr>";
+    if (result.cancelled) {
+        html << "<tr><td>Cancelled by operator</td><td class=\"fail\">Yes — these are partial "
+                "results; the walk was stopped before completion</td></tr>";
+    }
     if (result.pinAttempted) {
         bool ok = result.pinResult == ChvResult::Correct;
-        html << "<tr><td>PIN verification</td><td class=\"" << (ok ? "ok" : "fail") << "\">"
+        html << "<tr><td>PIN entered</td><td><code>******</code> "
+                "(educational purpose — PIN value not disclosed)</td></tr>"
+             << "<tr><td>PIN verification</td><td class=\"" << (ok ? "ok" : "fail") << "\">"
              << chvResultString(result.pinResult) << "</td></tr>";
         if (result.chv1AttemptsBeforeVerify.has_value()) {
             html << "<tr><td>CHV1 attempts remaining (before verify)</td><td>"
                  << *result.chv1AttemptsBeforeVerify << "</td></tr>";
         }
+    }
+    html << "</table>";
+
+    html << "<h2>Key results</h2>"
+         << "<table><tr><th>Field</th><th>Value</th><th>Status</th><th>Note</th></tr>";
+    for (const auto& field : buildKeyResults(result)) {
+        bool found = field.status == "found";
+        html << "<tr><td>" << field.name << "</td><td><code>"
+             << (found ? escapeHtml(field.value) : "") << "</code></td>"
+             << "<td class=\"" << (found ? "ok" : "") << "\">" << field.status << "</td>"
+             << "<td>" << escapeHtml(field.note) << "</td></tr>";
     }
     html << "</table>";
 

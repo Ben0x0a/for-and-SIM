@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <functional>
@@ -13,6 +14,20 @@
 #include "pcsc_transport.h"
 
 namespace forandsim {
+
+// Decoded from EF_LOCI (3GPP TS 51.011 clause 10.3.11): the last GSM/UMTS
+// cell the card's baseband registered on. Classic EF_LOCI carries the
+// Location Area (MCC/MNC/LAC) but not a Cell ID or LTE Tracking Area Code -
+// those live in EF_EPSLOCI under the USIM ADF, which this tool cannot yet
+// SELECT by AID (see the README's known limitations).
+struct LocationInfo {
+    std::string mcc; // Mobile Country Code
+    std::string mnc; // Mobile Network Code
+    std::string lac; // Location Area Code, as 4 hex digits
+};
+
+// Returns std::nullopt if `data` isn't a plausible EF_LOCI (too short).
+std::optional<LocationInfo> decodeLoci(const std::vector<uint8_t>& data);
 
 // One acquired GSM/USIM file, as it existed on the card.
 struct ExtractedFile {
@@ -91,28 +106,49 @@ struct AcquisitionResult {
     // caseMetadata.authorizationConfirmed was false.
     bool refusedUnauthorized = false;
 
+    // True if the acquisition was stopped early via AcquisitionOptions::cancel
+    // (e.g. the GUI's Stop button). Whatever was read before the cancellation
+    // point is still kept in `files`/`log`, but the walk is incomplete.
+    bool cancelled = false;
+
     std::vector<ExtractedFile> files;
     std::vector<std::string> log;
 };
 
 using ProgressCallback = std::function<void(const std::string& message)>;
 
+struct AcquisitionOptions {
+    // Re-reads and hash-checks every acquired file after the walk completes
+    // (see AcquisitionResult::verifyMismatches). Roughly doubles acquisition
+    // time but is the only way to confirm nothing changed across every
+    // PIN-gated file, not just ICCID. On by default.
+    bool verify = true;
+
+    // Brute-force probes non-standard EF/DF id ranges at every level to catch
+    // hidden/undocumented files (see file_walker.h). This can be slow on a
+    // slow reader, and cards that answer SELECT "successfully" for almost any
+    // id (some test/simulator cards) can make it explore a very large number
+    // of phantom files; disable it for a much faster catalog-only walk.
+    bool scanNonStandardFiles = true;
+
+    // If non-null and set to true from another thread, acquire() stops at the
+    // next checkpoint (between files/probes) and returns with `cancelled` set,
+    // keeping whatever was already read. Never left in a half-sent-APDU state.
+    std::atomic<bool>* cancelRequested = nullptr;
+};
+
 // Runs a full acquisition: connects (transport must already be connected to
 // the target reader/card), selects MF, reads ICCID, and — if `pin` has a
 // value — verifies CHV1 and, on success, walks the GSM DF tree and the USIM
-// ADF (if present), reading every catalog EF plus a brute-force ID probe per
-// DF to catch non-standard/hidden files.
+// ADF (if present), reading every catalog EF plus, if
+// options.scanNonStandardFiles, a brute-force ID probe per DF to catch
+// non-standard/hidden files.
 // Refuses outright (returns immediately, without touching the card) if
 // caseMetadata.authorizationConfirmed is false.
-// `verify` defaults to true: every acquired file is re-read and hash-checked
-// after the walk completes (see AcquisitionResult::verifyMismatches). This
-// roughly doubles acquisition time but is the only way to actually confirm
-// nothing changed across the PIN-gated files, not just ICCID; pass false to
-// skip it when a quick acquisition matters more than that confirmation.
 AcquisitionResult acquire(PcscTransport& transport,
                            const CaseMetadata& caseMetadata,
                            const std::optional<std::string>& pin,
-                           bool verify = true,
+                           const AcquisitionOptions& options = {},
                            const ProgressCallback& progress = {});
 
 // Quick, read-only pre-flight check: selects MF and returns the CHV1 retry

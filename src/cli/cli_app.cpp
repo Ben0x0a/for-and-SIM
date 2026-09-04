@@ -8,6 +8,7 @@
 #include "acquisition_engine.h"
 #include "case_metadata.h"
 #include "html_report.h"
+#include "output_paths.h"
 #include "pcsc_transport.h"
 #include "zip_writer.h"
 
@@ -23,7 +24,7 @@ void printUsage() {
         "  forandsim --check-pin --reader <name>\n"
         "  forandsim --reader <name> --case <id> --piece <n> --operator <name>\n"
         "                --output <dir> --confirm-authorized [--pin <digits> | --no-pin]\n"
-        "                [--notes <text>] [--no-verify]\n\n"
+        "                [--notes <text>] [--no-verify] [--no-scan-hidden] [--force]\n\n"
         "Options:\n"
         "  --list-readers        List detected PC/SC readers and exit\n"
         "  --check-pin           Read-only pre-flight: report CHV1 attempts remaining and exit\n"
@@ -33,7 +34,7 @@ void printUsage() {
         "  --piece <n>           Piece / exhibit number\n"
         "  --operator <name>     Operator / examiner name\n"
         "  --notes <text>        Free-form examiner notes\n"
-        "  --output <dir>        Output directory for the .zip and .html report\n"
+        "  --output <dir>        Base output directory; results go in <dir>/<case>/\n"
         "  --confirm-authorized  Attest that you are authorized to examine this exhibit\n"
         "                        (mandatory; acquisition refuses to run without it)\n"
         "  --pin <digits>        Verify this PIN (CHV1) and perform a full acquisition\n"
@@ -42,6 +43,11 @@ void printUsage() {
         "                        every file). Verification is ON by default; it roughly\n"
         "                        doubles acquisition time but is the only way to confirm\n"
         "                        nothing changed across every PIN-gated file, not just ICCID.\n"
+        "  --no-scan-hidden      Skip the brute-force probe for non-standard/hidden EFs and\n"
+        "                        DFs. Scanning is ON by default; it can be slow on a slow\n"
+        "                        reader, especially on cards that answer SELECT 'successfully'\n"
+        "                        for almost any id.\n"
+        "  --force               Overwrite an existing result folder instead of refusing\n"
         "  --help                Show this message\n";
 }
 
@@ -59,7 +65,8 @@ int run(int argc, char** argv) {
     forandsim::CaseMetadata caseMetadata;
     std::optional<std::string> pin;
     bool noPin = false;
-    bool verify = true;
+    forandsim::AcquisitionOptions options;
+    bool force = false;
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -89,7 +96,11 @@ int run(int argc, char** argv) {
         } else if (arg == "--no-pin") {
             noPin = true;
         } else if (arg == "--no-verify") {
-            verify = false;
+            options.verify = false;
+        } else if (arg == "--no-scan-hidden") {
+            options.scanNonStandardFiles = false;
+        } else if (arg == "--force") {
+            force = true;
         } else {
             std::cerr << "Unknown option: " << arg << "\n";
             printUsage();
@@ -145,30 +156,33 @@ int run(int argc, char** argv) {
             return 1;
         }
 
+        forandsim::output::OutputPaths paths =
+            forandsim::output::computeOutputPaths(outputDir, caseMetadata.caseIdentifier);
+        if (!force &&
+            (forandsim::output::pathExists(paths.zipPath) ||
+             forandsim::output::pathExists(paths.htmlPath))) {
+            std::cerr << "Refusing to overwrite existing results in '" << paths.caseDir
+                      << "'. Pass --force to overwrite, or choose a different --case/--output.\n";
+            return 1;
+        }
+        forandsim::output::ensureCaseDir(paths.caseDir);
+
         transport.connect(readerName);
 
         auto progress = [](const std::string& msg) { std::cout << "[forandsim] " << msg << "\n"; };
 
-        forandsim::AcquisitionResult result = forandsim::acquire(
-            transport, caseMetadata, noPin ? std::nullopt : pin, verify, progress);
+        forandsim::AcquisitionResult result =
+            forandsim::acquire(transport, caseMetadata, noPin ? std::nullopt : pin, options, progress);
         result.readerName = readerName;
 
-        std::string base = outputDir + "/" +
-            (caseMetadata.caseIdentifier.empty() ? "acquisition" : caseMetadata.caseIdentifier);
-        std::string zipPath = base + ".zip";
-        std::string htmlPath = base + ".html";
-        std::string zipFileName = caseMetadata.caseIdentifier.empty()
-                                       ? "acquisition.zip"
-                                       : caseMetadata.caseIdentifier + ".zip";
-
         forandsim::output::EvidenceZipResult zipInfo =
-            forandsim::output::writeEvidenceZip(result, zipPath);
-        forandsim::output::writeHtmlReport(result, htmlPath, zipFileName, zipInfo);
+            forandsim::output::writeEvidenceZip(result, paths.zipPath);
+        forandsim::output::writeHtmlReport(result, paths.htmlPath, paths.zipFileName, zipInfo);
 
-        std::cout << "Evidence container: " << zipPath << "\n";
+        std::cout << "Evidence container: " << paths.zipPath << "\n";
         std::cout << "Evidence SHA-256:   " << zipInfo.sha256 << "\n";
         std::cout << "Hash sidecar:       " << zipInfo.sidecarPath << "\n";
-        std::cout << "HTML report:        " << htmlPath << "\n";
+        std::cout << "HTML report:        " << paths.htmlPath << "\n";
         return 0;
     } catch (const std::exception& e) {
         std::cerr << "Error: " << e.what() << "\n";

@@ -58,12 +58,14 @@ std::string buildMetaText(const AcquisitionResult& result) {
       << "ATR:                " << atrHex(result.atr) << "\n"
       << "ICCID:              " << result.iccid << "\n"
       << "Acquisition mode:   " << (result.mode == AcquisitionMode::FullDump ? "full_dump" : "iccid_only") << "\n"
+      << "Cancelled by operator: " << (result.cancelled ? "yes (partial results)" : "no") << "\n"
       << "PIN attempted:      " << (result.pinAttempted ? "yes" : "no") << "\n";
     if (result.chv1AttemptsBeforeVerify.has_value()) {
         m << "CHV1 attempts remaining (before verify): " << *result.chv1AttemptsBeforeVerify << "\n";
     }
     if (result.pinAttempted) {
-        m << "PIN result:         " << chvResultString(result.pinResult) << "\n";
+        m << "PIN entered:        ****** (educational purpose, PIN value not disclosed)\n"
+          << "PIN result:         " << chvResultString(result.pinResult) << "\n";
     }
     m << "\nRead-only acquisition: yes (no UPDATE BINARY/RECORD, INVALIDATE or REHABILITATE\n"
       << "command is ever issued; VERIFY CHV is the only card-state-affecting operation).\n"
@@ -90,7 +92,6 @@ EvidenceZipResult writeEvidenceZip(const AcquisitionResult& result, const std::s
         throw std::runtime_error("failed to create evidence zip at '" + zipPath + "'");
     }
 
-    json values = json::object();
     json manifestFiles = json::array();
 
     for (const auto& f : result.files) {
@@ -106,13 +107,20 @@ EvidenceZipResult writeEvidenceZip(const AcquisitionResult& result, const std::s
             {"structure_unknown", f.structureUnknown},
             {"size_mismatch", f.sizeMismatch},
         });
-
-        if (f.interpretedValue.has_value()) {
-            values[f.path] = *f.interpretedValue;
-        }
     }
 
-    addFile(zip, "values.json", values.dump(2));
+    // Always the same fixed set of identity fields (ICCID/IMSI/MSISDN/SPN),
+    // present with an explicit status even when empty, so the schema doesn't
+    // change shape between an ICCID-only run and a full PIN-verified one.
+    json keyResults = json::object();
+    for (const auto& field : buildKeyResults(result)) {
+        keyResults[field.name] = {
+            {"value", field.value},
+            {"status", field.status},
+            {"path", field.path.empty() ? json(nullptr) : json(field.path)},
+        };
+    }
+    addFile(zip, "values.json", json{{"key_results", keyResults}}.dump(2));
 
     std::string metaText = buildMetaText(result);
     std::string metaSha256 = sha256Hex(std::vector<uint8_t>(metaText.begin(), metaText.end()));
@@ -144,7 +152,10 @@ EvidenceZipResult writeEvidenceZip(const AcquisitionResult& result, const std::s
         }},
         {"acquisition", {
             {"mode", result.mode == AcquisitionMode::FullDump ? "full_dump" : "iccid_only"},
+            {"cancelled", result.cancelled},
             {"pin_attempted", result.pinAttempted},
+            {"pin_value", result.pinAttempted
+                 ? json("****** (educational purpose, PIN value not disclosed)") : json(nullptr)},
             {"pin_result", chvResultString(result.pinResult)},
             {"chv1_attempts_before_verify", result.chv1AttemptsBeforeVerify.has_value()
                  ? json(*result.chv1AttemptsBeforeVerify) : json(nullptr)},

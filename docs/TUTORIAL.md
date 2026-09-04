@@ -69,9 +69,13 @@ other at all. Reading the ICCID never requires a PIN:
 - `--no-pin` means "don't even try a PIN, just read what's publicly available"
   (currently: just the ICCID).
 
-You'll get `./out/DEMO-001.zip`, `./out/DEMO-001.zip.sha256`, and
-`./out/DEMO-001.html`. Open the `.html` file in a browser - with no PIN, most
-sections will be short (one extracted file: ICCID), which is expected.
+You'll get `./out/DEMO-001/DEMO-001.zip`, `./out/DEMO-001/DEMO-001.zip.sha256`, and
+`./out/DEMO-001/DEMO-001.html` (results always go in a `<case>/` subfolder of
+`--output`, so repeated acquisitions never overwrite each other by accident -
+running the same `--case`/`--output` again refuses unless you add `--force`).
+Open the `.html` file in a browser - with no PIN, most sections will be short
+(one extracted file: ICCID; the "Key results" table will show IMSI/MSISDN/etc.
+as "not read (no PIN)" rather than just being blank), which is expected.
 
 ## 4. Check the PIN before risking it
 
@@ -108,16 +112,22 @@ Once you're confident in the PIN:
 ```
 
 (Verification is on by default - it re-reads every file afterward to confirm
-nothing changed; add `--no-verify` if you want a faster, less-confirmed run.)
+nothing changed; add `--no-verify` if you want a faster, less-confirmed run.
+The non-standard/hidden-file scan is also on by default; add `--no-scan-hidden`
+if it's too slow on your reader/card - you'll still get every catalog file,
+just not the brute-force search for undocumented ones.)
 
 Watch the console output: it prints every step as it happens (`[forandsim] ...`
-lines) - selecting MF, verifying the PIN, walking `DF_TELECOM`/`DF_GSM`, probing for
-non-standard files, the verification pass, and finally the paths to your output
-files plus the zip's own SHA-256.
+lines, each timestamped) - selecting MF, verifying the PIN, walking
+`DF_TELECOM`/`DF_GSM`, probing for non-standard files, the verification pass,
+and finally the paths to your output files plus the zip's own SHA-256.
 
 This can take anywhere from a few seconds to a couple of minutes: the brute-force
 probing (looking for files the standard catalog doesn't know about) and the
-verification pass both mean many APDU round-trips to the card.
+verification pass both mean many APDU round-trips to the card. In the GUI you
+can stop a running acquisition cleanly with the **Stop** button, which keeps
+whatever was already read rather than discarding it; the CLI doesn't have an
+equivalent yet (Ctrl+C just kills it).
 
 ## 6. Doing the same thing in the GUI
 
@@ -131,8 +141,12 @@ Run `./build/forandsim` with no arguments. Fill in the form top to bottom:
    picker, or drag and drop a folder onto the window.
 5. Optionally click **"Check PIN status"** first (same as step 4 above).
 6. Either type the PIN, or check **"Extract without PIN (ICCID only)"**.
-7. Leave **"Verify"** checked (it's on by default) unless you want a quicker run.
-8. Click **Start acquisition** and watch the log panel at the bottom.
+7. Leave **"Verify"** and **"Scan for non-standard/hidden files"** checked (both
+   on by default) unless you want a quicker, less thorough run.
+8. Click **Start acquisition** and watch the log panel at the bottom. If results
+   already exist in that case folder, you'll be asked to confirm overwriting
+   them. While it runs, a **Stop** button lets you cancel cleanly - whatever was
+   already read is still written out.
 9. When it's done, click **"Open output folder"**.
 
 ## 7. Reading the result
@@ -141,7 +155,11 @@ Open `<case>.html` in any browser. Work through it top to bottom:
 
 - **Case information / Tool provenance / Evidence container** - confirms who ran
   this, with what tool version, and gives you the zip's hash to verify later.
-- **Chain of custody** - when, where, on what workstation, with what reader.
+- **Chain of custody** - when, where, on what workstation, with what reader,
+  and a redacted note if a PIN was entered (never the PIN itself).
+- **Key results** - ICCID/IMSI/MSISDN/SPN/FPLMN/MCC/MNC/LAC/TAC/CID, always
+  listed with a status even when empty (see [REPORT.md](REPORT.md) for what
+  each status means).
 - **Read-only / integrity guarantee** - shows the PIN attempt count *before* it was
   used, and the verification pass result (should say every file matched).
 - **Extracted files** - every file read off the card, its hash, and its decoded

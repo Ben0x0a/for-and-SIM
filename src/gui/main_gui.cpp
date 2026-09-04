@@ -19,6 +19,7 @@
 #include "imgui.h"
 #include "imgui_impl_opengl3.h"
 #include "imgui_impl_sdl2.h"
+#include "output_paths.h"
 #include "pcsc_transport.h"
 #include "zip_writer.h"
 
@@ -108,16 +109,21 @@ struct AppState {
     char pin[16] = "";
     bool noPin = false;
     bool verify = true;
+    bool scanNonStandardFiles = true;
     bool authorizationConfirmed = false;
 
     std::atomic<bool> running{false};
+    std::atomic<bool> cancelRequested{false};
     std::mutex logMutex;
     std::vector<std::string> log;
     std::optional<std::string> lastError;
-    std::optional<std::string> lastZipPath;
-    std::optional<std::string> lastHtmlPath;
+    std::optional<std::string> lastCaseDir;
     std::optional<std::string> lastZipSha256;
     std::optional<std::string> pinStatusText;
+
+    bool showOverwriteConfirm = false;
+    std::string pendingReaderName;
+    std::string pendingCaseDir;
 
     void appendLog(const std::string& line) {
         std::lock_guard<std::mutex> lock(logMutex);
@@ -165,11 +171,11 @@ void checkPinStatus(AppState* state, std::string readerName) {
     }
 }
 
-void runAcquisition(AppState* state, std::string readerName) {
+void runAcquisition(AppState* state, std::string readerName, output::OutputPaths paths) {
     state->running = true;
+    state->cancelRequested = false;
     state->lastError.reset();
-    state->lastZipPath.reset();
-    state->lastHtmlPath.reset();
+    state->lastCaseDir.reset();
     state->lastZipSha256.reset();
 
     try {
@@ -183,32 +189,42 @@ void runAcquisition(AppState* state, std::string readerName) {
         std::optional<std::string> pin;
         if (!state->noPin) pin = std::string(state->pin);
 
+        AcquisitionOptions options;
+        options.verify = state->verify;
+        options.scanNonStandardFiles = state->scanNonStandardFiles;
+        options.cancelRequested = &state->cancelRequested;
+
         PcscTransport transport;
         transport.connect(readerName);
 
         auto progress = [state](const std::string& msg) { state->appendLog(msg); };
-        AcquisitionResult result = acquire(transport, meta, pin, state->verify, progress);
+        AcquisitionResult result = acquire(transport, meta, pin, options, progress);
         result.readerName = readerName;
 
-        std::string base = std::string(state->outputDir) + "/" +
-            (meta.caseIdentifier.empty() ? "acquisition" : meta.caseIdentifier);
-        std::string zipPath = base + ".zip";
-        std::string htmlPath = base + ".html";
-        std::string zipFileName = (meta.caseIdentifier.empty() ? "acquisition" : meta.caseIdentifier) + ".zip";
+        output::ensureCaseDir(paths.caseDir);
+        output::EvidenceZipResult zipInfo = output::writeEvidenceZip(result, paths.zipPath);
+        output::writeHtmlReport(result, paths.htmlPath, paths.zipFileName, zipInfo);
 
-        output::EvidenceZipResult zipInfo = output::writeEvidenceZip(result, zipPath);
-        output::writeHtmlReport(result, htmlPath, zipFileName, zipInfo);
-
-        state->lastZipPath = zipPath;
-        state->lastHtmlPath = htmlPath;
+        state->lastCaseDir = paths.caseDir;
         state->lastZipSha256 = zipInfo.sha256;
-        state->appendLog("Done. Wrote " + zipPath + " (SHA-256 " + zipInfo.sha256 + ") and " + htmlPath);
+        if (result.cancelled) {
+            state->appendLog("Cancelled. Partial results written to " + paths.caseDir);
+        } else {
+            state->appendLog("Done. Wrote " + paths.zipPath + " (SHA-256 " + zipInfo.sha256 +
+                              ") and " + paths.htmlPath);
+        }
     } catch (const std::exception& e) {
         state->lastError = e.what();
         state->appendLog(std::string("ERROR: ") + e.what());
     }
 
     state->running = false;
+}
+
+void startAcquisition(AppState& state, std::unique_ptr<std::thread>& worker,
+                       const std::string& readerName, const output::OutputPaths& paths) {
+    if (worker && worker->joinable()) worker->join();
+    worker = std::make_unique<std::thread>(runAcquisition, &state, readerName, paths);
 }
 
 } // namespace
@@ -280,6 +296,8 @@ int run() {
                       ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
                           ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar);
 
+        float fieldWidth = ImGui::GetContentRegionAvail().x * 0.8f;
+
         ImGui::Text("SIM/USIM forensic acquisition");
         ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.1f, 1.0f),
                             "Developed for educational purposes. Do not use on real cases.");
@@ -306,18 +324,23 @@ int run() {
 
         ImGui::Separator();
         ImGui::Text("Case information");
+        ImGui::PushItemWidth(fieldWidth);
         ImGui::InputText("Case identifier", state.caseId, sizeof(state.caseId));
         ImGui::InputText("Piece / exhibit number", state.piece, sizeof(state.piece));
         ImGui::InputText("Operator", state.operatorName, sizeof(state.operatorName));
-        ImGui::InputTextMultiline("Notes", state.notes, sizeof(state.notes), ImVec2(-1, 60));
+        ImGui::PopItemWidth();
+        ImGui::InputTextMultiline("Notes", state.notes, sizeof(state.notes), ImVec2(fieldWidth, 60));
+        ImGui::PushItemWidth(fieldWidth);
         ImGui::InputText("Output directory", state.outputDir, sizeof(state.outputDir));
+        ImGui::PopItemWidth();
         ImGui::SameLine();
         if (ImGui::Button("Browse...")) {
             if (auto picked = browseForFolder()) {
                 std::snprintf(state.outputDir, sizeof(state.outputDir), "%s", picked->c_str());
             }
         }
-        ImGui::TextDisabled("(you can also drag and drop a folder onto this window)");
+        ImGui::TextDisabled("(you can also drag and drop a folder onto this window; "
+                             "results go in <output dir>/<case>/)");
 
         ImGui::Separator();
         ImGui::Checkbox("I am authorized to examine this exhibit", &state.authorizationConfirmed);
@@ -330,8 +353,9 @@ int run() {
         ImGui::Text("PIN");
         ImGui::Checkbox("Extract without PIN (ICCID only)", &state.noPin);
         if (!state.noPin) {
-            ImGui::InputText("PIN (CHV1)", state.pin, sizeof(state.pin),
-                              ImGuiInputTextFlags_Password);
+            ImGui::PushItemWidth(fieldWidth);
+            ImGui::InputText("PIN (CHV1)", state.pin, sizeof(state.pin), ImGuiInputTextFlags_Password);
+            ImGui::PopItemWidth();
             ImGui::SameLine();
             if (ImGui::Button("Check PIN status") && !state.running && state.selectedReader >= 0) {
                 checkPinStatus(&state, state.readers[state.selectedReader]);
@@ -341,27 +365,62 @@ int run() {
             }
         }
         ImGui::Checkbox("Verify (re-read every file after acquisition, ~2x time)", &state.verify);
+        ImGui::Checkbox("Scan for non-standard/hidden files (can be slow on some readers/cards)",
+                         &state.scanNonStandardFiles);
 
         ImGui::Separator();
         bool canStart = !state.running && state.selectedReader >= 0 && state.authorizationConfirmed &&
                          state.caseId[0] != '\0' && (state.noPin || state.pin[0] != '\0');
         ImGui::BeginDisabled(!canStart);
         if (ImGui::Button("Start acquisition", ImVec2(200, 32))) {
-            if (worker && worker->joinable()) worker->join();
             std::string readerName = state.readers[state.selectedReader];
-            worker = std::make_unique<std::thread>(runAcquisition, &state, readerName);
+            output::OutputPaths paths =
+                output::computeOutputPaths(state.outputDir, state.caseId);
+            if (output::pathExists(paths.zipPath) || output::pathExists(paths.htmlPath)) {
+                state.showOverwriteConfirm = true;
+                state.pendingReaderName = readerName;
+                state.pendingCaseDir = paths.caseDir;
+                ImGui::OpenPopup("Overwrite existing results?");
+            } else {
+                startAcquisition(state, worker, readerName, paths);
+            }
         }
         ImGui::EndDisabled();
+
+        if (ImGui::BeginPopupModal("Overwrite existing results?", nullptr,
+                                    ImGuiWindowFlags_AlwaysAutoResize)) {
+            ImGui::Text("Results already exist in:\n%s", state.pendingCaseDir.c_str());
+            ImGui::Text("Overwrite them?");
+            ImGui::Separator();
+            if (ImGui::Button("Overwrite", ImVec2(120, 0))) {
+                output::OutputPaths paths =
+                    output::computeOutputPaths(state.outputDir, state.caseId);
+                startAcquisition(state, worker, state.pendingReaderName, paths);
+                state.showOverwriteConfirm = false;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Cancel", ImVec2(120, 0))) {
+                state.showOverwriteConfirm = false;
+                ImGui::CloseCurrentPopup();
+            }
+            ImGui::EndPopup();
+        }
 
         if (state.running) {
             ImGui::SameLine();
             ImGui::Text("Acquiring... this can take a while for a full dump.");
+            ImGui::SameLine();
+            if (ImGui::Button("Stop")) {
+                state.cancelRequested = true;
+                state.appendLog("Stop requested; finishing current step cleanly...");
+            }
         }
 
-        if (state.lastZipPath) {
+        if (state.lastCaseDir) {
             ImGui::SameLine();
-            if (ImGui::Button("Open output folder")) {
-                openPath(state.outputDir);
+            if (ImGui::Button("Open output folder", ImVec2(0, 32))) {
+                openPath(*state.lastCaseDir);
             }
         }
 
