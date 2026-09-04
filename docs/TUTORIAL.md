@@ -43,15 +43,21 @@ Insert your reader, then the card, and run:
 ./build/forandsim --list-readers
 ```
 
-You should see one line per connected reader, e.g.:
+You should see one line per connected reader, ICCID first (or `(no card)` if
+nothing's inserted) then the reader name, e.g.:
 
 ```
-ACS ACR38U-CCID 0
+8933010000000000001    ACS ACR38U-CCID 0
+(no card)               ACS ACR38U-CCID 1
 ```
+
+This is the point of listing the ICCID: with two readers plugged in, it's easy
+to lose track of which physical reader holds which card by name alone. The GUI's
+reader dropdown shows the same "ICCID - reader name" pairing.
 
 If you see "No PC/SC readers found", check the reader is plugged in and (on Linux)
-that `pcscd` is running. If two readers are connected, both are listed - you pick
-which one to use with `--reader "<exact name>"` (CLI) or the dropdown (GUI).
+that `pcscd` is running. Either way, pick the reader to use with
+`--reader "<exact name>"` (CLI, the second column above) or the dropdown (GUI).
 
 ## 3. A quick, PIN-free look: ICCID only
 

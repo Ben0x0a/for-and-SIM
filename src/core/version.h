@@ -5,7 +5,7 @@
 namespace forandsim {
 
 inline constexpr const char* kToolName = "For&SIM";
-inline constexpr const char* kToolVersion = "0.2.0";
+inline constexpr const char* kToolVersion = "0.2.1";
 inline constexpr const char* kRepoWeb = "https://github.com/Ben0x0a/for-and-SIM";
 
 } // namespace forandsim

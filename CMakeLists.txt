@@ -6,6 +6,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 option(FORANDSIM_BUILD_GUI "Build the Dear ImGui GUI front-end (requires SDL2)" ON)
 
+if(WIN32)
+  # windows.h defines min/max macros unless told not to, which breaks any
+  # std::min/std::max call in a translation unit that includes it (MSVC error
+  # C2589 "illegal token on right side of '::'"). Apply project-wide instead
+  # of chasing every #include <windows.h>.
+  add_compile_definitions(NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
+
 if(MSVC)
   # Static CRT so the shipped .exe needs no VC++ redistributable install.
   foreach(flag_var
@@ -30,6 +38,7 @@ add_library(forandsim_core STATIC
   src/core/hashing.cpp
   src/core/time_utils.cpp
   src/core/platform_info.cpp
+  src/core/reader_discovery.cpp
   src/core/output/report_common.cpp
   src/core/output/output_paths.cpp
   src/core/output/zip_writer.cpp

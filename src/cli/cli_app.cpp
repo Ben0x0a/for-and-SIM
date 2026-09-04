@@ -10,6 +10,7 @@
 #include "html_report.h"
 #include "output_paths.h"
 #include "pcsc_transport.h"
+#include "reader_discovery.h"
 #include "zip_writer.h"
 
 namespace forandsim::cli {
@@ -26,7 +27,8 @@ void printUsage() {
         "                --output <dir> --confirm-authorized [--pin <digits> | --no-pin]\n"
         "                [--notes <text>] [--no-verify] [--no-scan-hidden] [--force]\n\n"
         "Options:\n"
-        "  --list-readers        List detected PC/SC readers and exit\n"
+        "  --list-readers        List detected PC/SC readers (with each card's ICCID, if\n"
+        "                        present) and exit\n"
         "  --check-pin           Read-only pre-flight: report CHV1 attempts remaining and exit\n"
         "                        (does NOT attempt to verify the PIN)\n"
         "  --reader <name>       Reader to connect to (see --list-readers)\n"
@@ -112,11 +114,15 @@ int run(int argc, char** argv) {
         forandsim::PcscTransport transport;
 
         if (listReaders) {
-            auto readers = transport.listReaders();
+            auto readers = forandsim::listReadersWithIccid(transport);
             if (readers.empty()) {
                 std::cout << "No PC/SC readers found.\n";
             } else {
-                for (auto& r : readers) std::cout << r << "\n";
+                for (auto& r : readers) {
+                    std::cout << (r.iccid ? *r.iccid : std::string("(no card)")) << "\t"
+                              << r.readerName << "\n";
+                }
+                std::cout << "\n(pass the reader name, second column, to --reader)\n";
             }
             return 0;
         }

@@ -21,6 +21,7 @@
 #include "imgui_impl_sdl2.h"
 #include "output_paths.h"
 #include "pcsc_transport.h"
+#include "reader_discovery.h"
 #include "zip_writer.h"
 
 #ifdef _WIN32
@@ -98,7 +99,8 @@ std::optional<std::string> browseForFolder() {
 }
 
 struct AppState {
-    std::vector<std::string> readers;
+    std::vector<std::string> readers;      // actual reader names, used to connect
+    std::vector<std::string> readerLabels; // "<ICCID or (no card)> — <reader name>", for display
     int selectedReader = -1;
 
     char caseId[128] = "";
@@ -132,11 +134,18 @@ struct AppState {
 };
 
 void refreshReaders(AppState& state) {
+    state.readers.clear();
+    state.readerLabels.clear();
     try {
         PcscTransport transport;
-        state.readers = transport.listReaders();
+        for (auto& r : listReadersWithIccid(transport)) {
+            state.readers.push_back(r.readerName);
+            // Plain ASCII separator: Dear ImGui's default font atlas doesn't
+            // include an em-dash glyph, so one would just render as a blank box.
+            state.readerLabels.push_back((r.iccid ? *r.iccid : std::string("(no card)")) +
+                                          " - " + r.readerName);
+        }
     } catch (const std::exception& e) {
-        state.readers.clear();
         state.appendLog(std::string("Failed to list readers: ") + e.what());
     }
     state.selectedReader = state.readers.empty() ? -1 : 0;
@@ -314,11 +323,11 @@ int run() {
             ImGui::TextColored(ImVec4(1, 0.5f, 0, 1), "No PC/SC readers detected.");
         } else {
             if (ImGui::BeginCombo("##reader", state.selectedReader >= 0
-                                                   ? state.readers[state.selectedReader].c_str()
+                                                   ? state.readerLabels[state.selectedReader].c_str()
                                                    : "Select a reader")) {
                 for (int i = 0; i < (int)state.readers.size(); ++i) {
                     bool selected = (i == state.selectedReader);
-                    if (ImGui::Selectable(state.readers[i].c_str(), selected)) {
+                    if (ImGui::Selectable(state.readerLabels[i].c_str(), selected)) {
                         state.selectedReader = i;
                     }
                 }
