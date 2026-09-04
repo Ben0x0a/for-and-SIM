@@ -103,11 +103,16 @@ ctest --test-dir build --output-on-failure
 
 ## Usage
 
+For a full walkthrough (build → find your reader → check the PIN safely → acquire →
+read the report), see [docs/TUTORIAL.md](docs/TUTORIAL.md).
+
 ### GUI (default, no arguments)
 
 ```
 forandsim
 ```
+
+![For&SIM GUI](docs/screenshots/gui-overview.png)
 
 Check "I am authorized to examine this exhibit", fill in case identifier,
 piece/exhibit number, operator, notes and output directory, pick a reader,

@@ -22,9 +22,79 @@
 #include "pcsc_transport.h"
 #include "zip_writer.h"
 
+#ifdef _WIN32
+#include <shlobj.h>
+#include <windows.h>
+#else
+#include <sys/stat.h>
+#endif
+
 namespace forandsim::gui {
 
 namespace {
+
+bool isDirectory(const std::string& path) {
+#ifdef _WIN32
+    DWORD attrs = GetFileAttributesA(path.c_str());
+    return attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY);
+#else
+    struct stat st;
+    return stat(path.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
+#endif
+}
+
+// Native folder picker. Windows uses IFileDialog (COM); macOS/Linux shell out to a
+// small helper that's present on essentially every desktop install, rather than
+// vendoring a whole native-dialog library for one button.
+std::optional<std::string> browseForFolder() {
+#ifdef _WIN32
+    std::optional<std::string> result;
+    if (SUCCEEDED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED))) {
+        IFileDialog* dialog = nullptr;
+        if (SUCCEEDED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
+                                        IID_PPV_ARGS(&dialog)))) {
+            DWORD opts = 0;
+            dialog->GetOptions(&opts);
+            dialog->SetOptions(opts | FOS_PICKFOLDERS);
+            if (SUCCEEDED(dialog->Show(nullptr))) {
+                IShellItem* item = nullptr;
+                if (SUCCEEDED(dialog->GetResult(&item))) {
+                    PWSTR path = nullptr;
+                    if (SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &path))) {
+                        int len = WideCharToMultiByte(CP_UTF8, 0, path, -1, nullptr, 0, nullptr, nullptr);
+                        std::string utf8(len > 0 ? len - 1 : 0, '\0');
+                        WideCharToMultiByte(CP_UTF8, 0, path, -1, utf8.data(), len, nullptr, nullptr);
+                        result = utf8;
+                        CoTaskMemFree(path);
+                    }
+                    item->Release();
+                }
+            }
+            dialog->Release();
+        }
+        CoUninitialize();
+    }
+    return result;
+#else
+    auto runAndCapture = [](const char* cmd) -> std::optional<std::string> {
+        FILE* pipe = popen(cmd, "r");
+        if (!pipe) return std::nullopt;
+        std::string out;
+        char buf[4096];
+        while (fgets(buf, sizeof(buf), pipe)) out += buf;
+        int rc = pclose(pipe);
+        while (!out.empty() && (out.back() == '\n' || out.back() == '\r')) out.pop_back();
+        if (rc != 0 || out.empty()) return std::nullopt;
+        return out;
+    };
+#ifdef __APPLE__
+    return runAndCapture("osascript -e 'POSIX path of (choose folder)' 2>/dev/null");
+#else
+    if (auto r = runAndCapture("zenity --file-selection --directory 2>/dev/null")) return r;
+    return runAndCapture("kdialog --getexistingdirectory ~ 2>/dev/null");
+#endif
+#endif
+}
 
 struct AppState {
     std::vector<std::string> readers;
@@ -186,7 +256,18 @@ int run() {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             ImGui_ImplSDL2_ProcessEvent(&event);
-            if (event.type == SDL_QUIT) done = true;
+            if (event.type == SDL_QUIT) {
+                done = true;
+            } else if (event.type == SDL_DROPFILE) {
+                char* dropped = event.drop.file;
+                if (isDirectory(dropped)) {
+                    std::snprintf(state.outputDir, sizeof(state.outputDir), "%s", dropped);
+                    state.appendLog(std::string("Output directory set via drag-and-drop: ") + dropped);
+                } else {
+                    state.appendLog(std::string("Ignored dropped item (not a folder): ") + dropped);
+                }
+                SDL_free(dropped);
+            }
         }
 
         ImGui_ImplOpenGL3_NewFrame();
@@ -230,6 +311,13 @@ int run() {
         ImGui::InputText("Operator", state.operatorName, sizeof(state.operatorName));
         ImGui::InputTextMultiline("Notes", state.notes, sizeof(state.notes), ImVec2(-1, 60));
         ImGui::InputText("Output directory", state.outputDir, sizeof(state.outputDir));
+        ImGui::SameLine();
+        if (ImGui::Button("Browse...")) {
+            if (auto picked = browseForFolder()) {
+                std::snprintf(state.outputDir, sizeof(state.outputDir), "%s", picked->c_str());
+            }
+        }
+        ImGui::TextDisabled("(you can also drag and drop a folder onto this window)");
 
         ImGui::Separator();
         ImGui::Checkbox("I am authorized to examine this exhibit", &state.authorizationConfirmed);

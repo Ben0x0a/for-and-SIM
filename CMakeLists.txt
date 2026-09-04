@@ -101,7 +101,7 @@ if(FORANDSIM_BUILD_GUI)
   elseif(UNIX)
     target_link_libraries(forandsim_gui PUBLIC GL)
   else()
-    target_link_libraries(forandsim_gui PUBLIC opengl32)
+    target_link_libraries(forandsim_gui PUBLIC opengl32 ole32 shell32 uuid)
   endif()
 endif()
 
