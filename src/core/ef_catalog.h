@@ -23,18 +23,26 @@ constexpr uint16_t kMF = 0x3F00;
 constexpr uint16_t kEF_ICCID = 0x2FE2;
 constexpr uint16_t kEF_DIR = 0x2F00;
 constexpr uint16_t kEF_PL = 0x2F05;
+constexpr uint16_t kDF_GSM = 0x7F20;
 
 // EFs directly under MF (besides ICCID/EF_DIR/EF_PL, listed explicitly above).
 std::vector<std::pair<uint16_t, const char*>> mfEfs();
+
+// EFs directly under DF_GSM whose READ access condition is ALW (3GPP TS
+// 51.011): readable with no PIN at all, unlike almost everything else under
+// DF_GSM/DF_TELECOM. Currently just EF_PHASE, which a phone needs to read
+// before it can even attempt to verify a PIN.
+std::vector<std::pair<uint16_t, const char*>> alwEfsUnderDfGsm();
 
 // The classic GSM DF tree (DF_TELECOM, DF_GSM and their sub-DFs/EFs), matching
 // what a SIM (not USIM) filesystem exposes under MF.
 std::vector<DfNode> gsmDfTree();
 
-// EFs found directly under the USIM Application DF (ADF_USIM), selected by AID.
-// Most share the same file IDs as their GSM DF_GSM/DF_TELECOM counterparts
-// (3GPP TS 31.102 Annex), so the acquisition engine also reuses this list to
-// probe an ADF once selected.
+// EFs found directly under the USIM Application DF (ADF_USIM), selected by AID
+// (see card_session.h's selectByAid() and acquisition_engine's EF_DIR-based AID
+// discovery). Most share the same file IDs as their GSM DF_GSM/DF_TELECOM
+// counterparts (3GPP TS 31.102 Annex), so the acquisition engine also reuses
+// this list to probe an ADF once selected.
 std::vector<std::pair<uint16_t, const char*>> usimAdfEfs();
 
 // Looks up a human-readable name for a file id within a given catalog list;

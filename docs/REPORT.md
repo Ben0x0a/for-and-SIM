@@ -90,8 +90,11 @@ both about trusting what happened during acquisition:
 
 - When the acquisition started/finished, which workstation (hostname + logged-in
   user) and which reader performed it, the card's raw ATR, its ICCID, the
-  acquisition mode (`ICCID only` vs `Full dump`), and whether the operator
-  cancelled it early (partial results).
+  acquisition mode (`ICCID only` vs `Full dump`), whether the USIM ADF was
+  selected (only shown in full-dump mode - "yes" means USIM-specific EFs were
+  also walked, "no" means either this card has no USIM application or its AID
+  couldn't be found), and whether the operator cancelled it early (partial
+  results).
 - If a PIN was used: a redacted note that a PIN was entered (`****** —
   educational purpose, PIN value not disclosed`), the verification result, and
   how many CHV1 attempts were left *before* the attempt was made. Nothing
@@ -121,13 +124,13 @@ The same information as the HTML report, structured for machine parsing:
   `authorization_confirmed` (boolean - see the README's "Ethics note").
 - `chain_of_custody` - ISO-8601 UTC timestamps, workstation hostname/user, reader name.
 - `card` - `atr_hex` (space-separated hex bytes) and `iccid`.
-- `acquisition` - `mode` (`"iccid_only"` or `"full_dump"`), `cancelled` (true if
-  the operator stopped it early), `pin_attempted`, `pin_value` (the fixed
-  redacted string if `pin_attempted`, else `null` - the real PIN is never
-  recorded anywhere), `pin_result`
-  (`correct` / `incorrect` / `blocked` / `not_initialized` / `error`),
-  and `chv1_attempts_before_verify` (the retry counter read *before* the PIN was
-  tried; `null` if it couldn't be determined).
+- `acquisition` - `mode` (`"iccid_only"` or `"full_dump"`), `usim_adf_selected`
+  (only meaningful in full-dump mode), `cancelled` (true if the operator
+  stopped it early), `pin_attempted`, `pin_value` (the fixed redacted string if
+  `pin_attempted`, else `null` - the real PIN is never recorded anywhere),
+  `pin_result` (`correct` / `incorrect` / `blocked` / `not_initialized` /
+  `error`), and `chv1_attempts_before_verify` (the retry counter read *before*
+  the PIN was tried; `null` if it couldn't be determined).
 - `integrity` - `read_only_acquisition` (always `true`), the ICCID re-read hashes and
   whether they matched, and, if requested, `full_verify_performed` and
   `full_verify_mismatches` (a list of file paths whose re-read hash differed from

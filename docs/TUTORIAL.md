@@ -66,8 +66,10 @@ other at all. Reading the ICCID never requires a PIN:
 - `--confirm-authorized` is mandatory - it's your attestation that you're allowed to
   examine this card. Without it the tool refuses to even connect (see the README's
   "Read-only guarantee" section for why this and other safeguards exist).
-- `--no-pin` means "don't even try a PIN, just read what's publicly available"
-  (currently: just the ICCID).
+- `--no-pin` means "don't even try a PIN, just read what's publicly available":
+  ICCID, plus a small number of other files that never require a PIN either
+  (`EF_DIR`, `EF_PL`, `EF_PHASE`) - everything else on the card genuinely needs
+  the PIN, there's no way around that.
 
 You'll get `./out/DEMO-001/DEMO-001.zip` and `./out/DEMO-001/DEMO-001.html`
 (results always go in a `<case>/` subfolder of `--output`, so repeated

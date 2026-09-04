@@ -63,6 +63,13 @@ struct FileInfo {
 };
 
 std::vector<uint8_t> buildSelect(uint16_t fileId);
+
+// SELECT by AID (ISO 7816-4 / ETSI TS 102.221): CLA=0x00 (not the classic GSM
+// class), INS=SELECT, P1=0x04 "select by DF name", P2=0x0C "no response data"
+// (so no FCP template to parse - success is just SW=9000). Used to enter an
+// application ADF such as the USIM, found via its AID in EF_DIR.
+std::vector<uint8_t> buildSelectAid(const std::vector<uint8_t>& aid);
+
 std::vector<uint8_t> buildGetResponse(uint8_t length);
 std::vector<uint8_t> buildReadBinary(uint16_t offset, uint8_t length);
 std::vector<uint8_t> buildReadRecord(uint8_t recordNumber, uint8_t length);

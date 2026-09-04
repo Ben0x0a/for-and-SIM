@@ -14,12 +14,18 @@ Repository: [https://github.com/Ben0x0a/for-and-SIM](https://github.com/Ben0x0a/
 ## What it does
 
 - Connects to a SIM/USIM card through any standard PC/SC USB smart-card reader.
-- Always reads the ICCID first, without a PIN.
+- Without a PIN: reads ICCID plus every other file whose read access condition is
+  `ALW` (no PIN needed at all) - `EF_DIR` (installed application AIDs), `EF_PL`
+  (preferred languages), `EF_PHASE`. Everything else on a SIM/USIM genuinely
+  requires the PIN; there's no way to get more without it.
 - If a PIN (CHV1) is supplied and verified, performs a full acquisition: walks the
   classic GSM DF tree (`DF_TELECOM`, `DF_GSM` and their sub-DFs) reading every
   catalog elementary file, plus a brute-force probe of the non-standard EF-id
   ranges (`0x4Fxx`/`0x6Fxx`) *and* the DF-id ranges (`0x5Fxx`/`0x7Fxx`) at every
-  level, recursively exploring any undocumented DF it finds.
+  level, recursively exploring any undocumented DF it finds. If the card also has
+  a USIM application, its AID is discovered via `EF_DIR` (falling back to the
+  well-known 3GPP USIM AID if that fails), the ADF is `SELECT`ed, and its
+  USIM-specific EFs (3GPP TS 31.102) are walked too.
 - Produces, in `<output dir>/<case>/` (a dedicated subfolder per case, so
   multiple acquisitions in the same output directory never mix their files):
   - `<case>.zip` - the evidence container: raw bytes of every acquired file under
@@ -37,7 +43,11 @@ Repository: [https://github.com/Ben0x0a/for-and-SIM](https://github.com/Ben0x0a/
     chain of custody & integrity, and the full ISO-8601-timestamped acquisition
     log.
 
-  See [docs/REPORT.md](docs/REPORT.md) for a field-by-field explanation of
+  New to what "file" even means on a SIM? Start with
+  [docs/HOW_SIM_STORAGE_WORKS.md](docs/HOW_SIM_STORAGE_WORKS.md) - a
+  plain-language explainer of the MF/DF/EF filesystem model, how `SELECT`/`READ`
+  work over APDU, and why PIN-gating is per-file, not per-card. See
+  [docs/REPORT.md](docs/REPORT.md) for a field-by-field explanation of
   everything in the zip and the HTML report, and
   [docs/GLOSSARY.md](docs/GLOSSARY.md) for every abbreviation used (SIM/USIM,
   MF/DF/EF, ICCID/IMSI, CHV/PUK, APDU/SW1-SW2, ATR, PC/SC, and more).
@@ -203,16 +213,34 @@ card's retry counter and can permanently block a real card without its PUK. This
 tool is for learning how SIM/USIM forensic acquisition works — do not use it on
 real evidence.
 
+**How sensitive is a produced report, really?** ICCID and IMSI are personal
+data - they can identify and, combined with carrier cooperation, help locate a
+specific subscriber, which is why real operators treat them as PII. That risk
+is real but bounded: on their own, an ICCID/IMSI pair does not let anyone clone
+the SIM, intercept calls/SMS, or take over the account - that would need `Ki`,
+the card's long-term authentication key, which no EF ever exposes and this
+tool has no way to extract (see the "Sensitive values" section above for what
+*is* extractable and why key material specifically is never written to disk).
+For a classroom exercise using cards students already control (their own, or
+disposable course-provided test cards), a produced report is fine to
+handle/share the way you'd treat any personal-data spreadsheet - keep it
+reasonably private, don't publish it, but it isn't a "shred immediately"
+level secret.
+
 ## Known limitations
 
-- AID-based `SELECT` of the USIM Application DF (3GPP TS 31.102, needs `EF_DIR`
-  parsing and a `CLA=0x00` select) is not implemented yet; the classic
-  MF/DF_GSM/DF_TELECOM tree that every SIM/USIM answers to is what gets walked
-  (see `catalog::usimAdfEfs()`, currently unused).
+- The brute-force probes (both the non-standard-file scan and the USIM AID
+  discovery) don't cover the USIM ADF itself: once inside the ADF, only the
+  catalog EFs in `catalog::usimAdfEfs()` are read - there's no brute-force
+  search for hidden/non-standard files there yet, unlike the classic
+  MF/DF_GSM/DF_TELECOM tree.
 - The brute-force probes only scan the conventional EF (`0x4Fxx`/`0x6Fxx`) and DF
   (`0x5Fxx`/`0x7Fxx`) ranges per level, not the full 16-bit id space; a full scan
   would be far slower for little additional coverage. This does mean a file
   deliberately hidden outside those conventional ranges would be missed.
+- USIM AID discovery only recognizes the standard 3GPP USIM AID prefix
+  (`A0 00 00 00 87 10 02`); a card whose USIM uses a different/customized AID
+  and has no `EF_DIR` entry for it (or an unreadable `EF_DIR`) won't be found.
 - An operator-requested Stop is handled gracefully (partial results are still
   written, with `cancelled: true` in the manifest). An *unexpected* hardware
   error mid-walk (card removed, reader glitch — a `SCardTransmit` failure) is

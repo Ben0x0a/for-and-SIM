@@ -155,6 +155,14 @@ void writeHtmlReport(const AcquisitionResult& result, const std::string& htmlPat
          << "<tr><td>Acquisition mode</td><td>"
          << (result.mode == AcquisitionMode::FullDump ? "Full dump (PIN verified)" : "ICCID only (no PIN)")
          << "</td></tr>";
+    if (result.mode == AcquisitionMode::FullDump) {
+        html << "<tr><td>USIM ADF</td><td class=\"" << (result.usimAdfSelected ? "ok" : "")
+             << "\">" << (result.usimAdfSelected
+                              ? "Selected - USIM-specific EFs were also walked"
+                              : "Not selected - classic GSM SIM data only (no USIM "
+                                "application found, or AID mismatch)")
+             << "</td></tr>";
+    }
     if (result.cancelled) {
         html << "<tr><td>Cancelled by operator</td><td class=\"fail\">Yes — these are partial "
                 "results; the walk was stopped before completion</td></tr>";

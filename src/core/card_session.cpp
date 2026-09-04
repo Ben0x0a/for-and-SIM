@@ -95,4 +95,10 @@ ChvVerifyOutcome CardSession::verifyChv1(const std::string& pin) {
     return outcome;
 }
 
+bool CardSession::selectByAid(const std::vector<uint8_t>& aid) {
+    std::vector<uint8_t> raw = transport_.transmit(apdu::buildSelectAid(aid));
+    lastResponse_ = apdu::parseResponse(raw);
+    return lastResponse_.ok();
+}
+
 } // namespace forandsim

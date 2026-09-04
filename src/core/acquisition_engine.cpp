@@ -154,6 +154,67 @@ std::string hostname() {
 #endif
 }
 
+// Parses one EF_DIR record as an ISO 7816-4 "Application Template" (tag 0x61):
+// a nested TLV list that includes tag 0x4F (AID) among others (e.g. 0x50,
+// application label). Returns the AID bytes if found.
+std::optional<std::vector<uint8_t>> parseAidFromDirRecord(const std::vector<uint8_t>& rec) {
+    if (rec.size() < 2 || rec[0] != 0x61) return std::nullopt;
+    uint8_t templateLen = rec[1];
+    size_t end = std::min(rec.size(), size_t(2) + templateLen);
+    size_t i = 2;
+    while (i + 1 < end) {
+        uint8_t tag = rec[i];
+        uint8_t len = rec[i + 1];
+        i += 2;
+        if (i + len > rec.size()) break;
+        if (tag == 0x4F && len >= 5) {
+            return std::vector<uint8_t>(rec.begin() + i, rec.begin() + i + len);
+        }
+        i += len;
+    }
+    return std::nullopt;
+}
+
+// 3GPP TS 31.102 Annex E: the USIM application AID starts with RID
+// 'A0 00 00 00 87' and application code '1002'.
+bool isUsimAid(const std::vector<uint8_t>& aid) {
+    static const std::vector<uint8_t> kUsimRid = {0xA0, 0x00, 0x00, 0x00, 0x87};
+    return aid.size() >= kUsimRid.size() &&
+           std::equal(kUsimRid.begin(), kUsimRid.end(), aid.begin());
+}
+
+// Looks for a USIM AID among any EF_DIR file already read into `files`.
+// Handles both the common linear-fixed EF_DIR layout (one Application
+// Template per record) and the rarer transparent layout (Application
+// Templates concatenated back-to-back in one blob).
+std::optional<std::vector<uint8_t>> discoverUsimAid(const std::vector<ExtractedFile>& files) {
+    for (auto& f : files) {
+        if (f.name != "DIR") continue;
+
+        for (auto& record : f.records) {
+            if (auto aid = parseAidFromDirRecord(record); aid && isUsimAid(*aid)) {
+                return aid;
+            }
+        }
+
+        size_t i = 0;
+        while (i + 1 < f.rawData.size()) {
+            if (f.rawData[i] != 0x61) {
+                ++i;
+                continue;
+            }
+            uint8_t len = f.rawData[i + 1];
+            size_t recEnd = std::min(f.rawData.size(), i + 2 + size_t(len));
+            std::vector<uint8_t> record(f.rawData.begin() + i, f.rawData.begin() + recEnd);
+            if (auto aid = parseAidFromDirRecord(record); aid && isUsimAid(*aid)) {
+                return aid;
+            }
+            i = recEnd;
+        }
+    }
+    return std::nullopt;
+}
+
 std::string currentUser() {
 #ifdef _WIN32
     char buf[256];
@@ -247,8 +308,25 @@ AcquisitionResult acquire(PcscTransport& transport,
         }
 
         if (!pin.has_value()) {
-            log("No PIN supplied: stopping after ICCID acquisition");
+            log("No PIN supplied: reading remaining always-accessible (READ=ALW) files");
             result.mode = AcquisitionMode::IccidOnly;
+
+            session.selectFile(catalog::kMF);
+            std::vector<std::pair<uint16_t, const char*>> remainingMfAlw;
+            for (auto& [id, name] : catalog::mfEfs()) {
+                if (id != catalog::kEF_ICCID) remainingMfAlw.push_back({id, name});
+            }
+            readKnownEfs(session, remainingMfAlw, {}, "MF", result.files, options, progress);
+
+            selectPath(session, {catalog::kDF_GSM});
+            readKnownEfs(session, catalog::alwEfsUnderDfGsm(), {catalog::kDF_GSM}, "MF/DF_GSM",
+                         result.files, options, progress);
+
+            for (auto& file : result.files) {
+                applyKnownInterpretation(file);
+            }
+
+            log("No PIN supplied: stopping after always-accessible files");
             result.finishedAt = std::chrono::system_clock::now();
             return result;
         }
@@ -301,10 +379,34 @@ AcquisitionResult acquire(PcscTransport& transport,
             probeUnknownDfs(session, knownTopDfs, {}, "MF", result.files, options, progress);
         }
 
-        // NOTE: this pass covers the classic MF/DF_GSM/DF_TELECOM tree (legacy
-        // GSM access, which every SIM/USIM answers to). AID-based SELECT of the
-        // USIM ADF (3GPP TS 31.102) needs EF_DIR parsing + a CLA=0x00 SELECT and
-        // is tracked as a follow-up (see catalog::usimAdfEfs(), currently unused).
+        // The above covers the classic MF/DF_GSM/DF_TELECOM tree, which every
+        // SIM/USIM answers to. If this card also has a USIM application, its
+        // AID (found in EF_DIR, just read as part of mfEfs() above) lets us
+        // SELECT it and walk its ADF for USIM-specific EFs too.
+        log("Discovering USIM AID via EF_DIR (falls back to the well-known "
+            "3GPP USIM AID if EF_DIR is absent or unreadable)");
+        std::optional<std::vector<uint8_t>> aid = discoverUsimAid(result.files);
+        if (!aid) {
+            aid = catalog::kUsimAidFallback;
+            log("No USIM AID found in EF_DIR; trying the well-known fallback AID");
+        }
+        session.selectFile(catalog::kMF);
+        if (session.selectByAid(*aid)) {
+            result.usimAid = aid;
+            result.usimAdfSelected = true;
+            log("USIM ADF selected successfully; walking its elementary files");
+
+            size_t beforeAdf = result.files.size();
+            readKnownEfs(session, catalog::usimAdfEfs(), {}, "ADF_USIM", result.files, options,
+                         progress);
+            for (size_t i = beforeAdf; i < result.files.size(); ++i) {
+                result.files[i].underUsimAdf = true;
+            }
+        } else {
+            log("USIM ADF not selectable (no USIM application on this card, or AID mismatch); "
+                "continuing with classic GSM data only");
+        }
+        session.selectFile(catalog::kMF);
 
         for (auto& file : result.files) {
             applyKnownInterpretation(file);
@@ -335,7 +437,13 @@ AcquisitionResult acquire(PcscTransport& transport,
             size_t checked = 0;
             for (auto& file : result.files) {
                 checkCancellation(options);
-                selectPath(session, file.dfPath);
+                if (file.underUsimAdf && result.usimAid) {
+                    // dfPath doesn't apply under an AID-selected ADF; re-enter it.
+                    session.selectFile(catalog::kMF);
+                    session.selectByAid(*result.usimAid);
+                } else {
+                    selectPath(session, file.dfPath);
+                }
                 apdu::FileInfo info = session.selectFile(file.fileId);
                 if (info.type != apdu::FileType::EF) {
                     result.verifyMismatches.push_back(file.path);

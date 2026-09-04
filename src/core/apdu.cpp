@@ -7,6 +7,12 @@ std::vector<uint8_t> buildSelect(uint16_t fileId) {
             uint8_t(fileId >> 8), uint8_t(fileId & 0xFF)};
 }
 
+std::vector<uint8_t> buildSelectAid(const std::vector<uint8_t>& aid) {
+    std::vector<uint8_t> command{0x00, INS_SELECT, 0x04, 0x0C, uint8_t(aid.size())};
+    command.insert(command.end(), aid.begin(), aid.end());
+    return command;
+}
+
 std::vector<uint8_t> buildGetResponse(uint8_t length) {
     return {CLA_GSM, INS_GET_RESPONSE, 0x00, 0x00, length};
 }

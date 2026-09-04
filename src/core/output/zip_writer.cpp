@@ -60,6 +60,7 @@ std::string buildMetaText(const AcquisitionResult& result) {
       << "ATR:                " << atrHex(result.atr) << "\n"
       << "ICCID:              " << result.iccid << "\n"
       << "Acquisition mode:   " << (result.mode == AcquisitionMode::FullDump ? "full_dump" : "iccid_only") << "\n"
+      << "USIM ADF selected:  " << (result.usimAdfSelected ? "yes" : "no") << "\n"
       << "Cancelled by operator: " << (result.cancelled ? "yes (partial results)" : "no") << "\n"
       << "PIN attempted:      " << (result.pinAttempted ? "yes" : "no") << "\n";
     if (result.chv1AttemptsBeforeVerify.has_value()) {
@@ -177,6 +178,7 @@ EvidenceZipResult writeEvidenceZip(const AcquisitionResult& result, const std::s
         }},
         {"acquisition", {
             {"mode", result.mode == AcquisitionMode::FullDump ? "full_dump" : "iccid_only"},
+            {"usim_adf_selected", result.usimAdfSelected},
             {"cancelled", result.cancelled},
             {"pin_attempted", result.pinAttempted},
             {"pin_value", result.pinAttempted

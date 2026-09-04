@@ -46,6 +46,11 @@ public:
     // Verifies CHV1 (PIN1). `pin` is the ASCII digits, e.g. "1234".
     ChvVerifyOutcome verifyChv1(const std::string& pin);
 
+    // SELECTs an application by its AID (e.g. the USIM ADF found via EF_DIR),
+    // using CLA=0x00 rather than the classic GSM class. Returns true on
+    // success (SW=9000); check lastResponse() for the failure status word.
+    bool selectByAid(const std::vector<uint8_t>& aid);
+
 private:
     std::vector<uint8_t> transmitWithGetResponse(const std::vector<uint8_t>& command);
 

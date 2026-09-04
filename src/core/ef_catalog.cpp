@@ -15,6 +15,12 @@ std::vector<std::pair<uint16_t, const char*>> mfEfs() {
     };
 }
 
+std::vector<std::pair<uint16_t, const char*>> alwEfsUnderDfGsm() {
+    return {
+        {0x6FAE, "PHASE"},
+    };
+}
+
 std::vector<DfNode> gsmDfTree() {
     return {
         DfNode{0x7F10, "DF_TELECOM", {

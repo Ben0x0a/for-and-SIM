@@ -56,6 +56,11 @@ struct ExtractedFile {
     // memory (so sha256 above is computed normally) but the output layer
     // (writeEvidenceZip) never writes this file's raw content to disk.
     bool sensitive = false;
+    // True if this file was read from inside the USIM ADF (selected by AID)
+    // rather than the classic MF/DF_GSM/DF_TELECOM tree. dfPath doesn't apply
+    // to these (AID-select isn't a 2-byte-id path); re-entering this file's
+    // location means re-selecting AcquisitionResult::usimAid first.
+    bool underUsimAdf = false;
 };
 
 enum class AcquisitionMode {
@@ -75,6 +80,14 @@ struct AcquisitionResult {
 
     std::vector<uint8_t> atr;
     std::string iccid;
+
+    // USIM ADF (3GPP TS 31.102) access, attempted only in full-dump mode.
+    // usimAid is the AID that was actually selected (from EF_DIR, or the
+    // well-known fallback), std::nullopt if none was ever attempted.
+    // usimAdfSelected is false either because no AID worked or because this
+    // card only has a classic GSM SIM application (no USIM at all).
+    std::optional<std::vector<uint8_t>> usimAid;
+    bool usimAdfSelected = false;
 
     AcquisitionMode mode = AcquisitionMode::IccidOnly;
     bool pinAttempted = false;
