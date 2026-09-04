@@ -58,6 +58,14 @@ with `SELECT` commands, much like folders and files on a disk:
   Dialling Numbers, Service Dialling Numbers, Barred Dialling Numbers.
 - **SMS/SMSP/SMSS/SMSR** - stored text messages and related SMS parameters/status.
 - **ACC/ECC** - Access Control Class and Emergency Call Codes.
+- **Ki** - the card's long-term authentication key. Never appears in this list of
+  "values commonly found on the card" because it structurally can't be read: no
+  EF ever exposes it, at any PIN level - it's used internally by the card's
+  crypto algorithm and never leaves the chip.
+- **Kc / KcGPRS** (`EF_Kc` / `EF_KcGPRS`) - the last GSM/GPRS ciphering *session*
+  key the card computed (derived from `Ki`, not `Ki` itself). Unlike every
+  other file, For&SIM detects and hashes these but deliberately never writes
+  their raw content to disk - see the README's "Sensitive values" section.
 
 ## Cell/location identifiers
 

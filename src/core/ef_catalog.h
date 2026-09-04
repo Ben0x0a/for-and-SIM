@@ -41,4 +41,14 @@ std::vector<std::pair<uint16_t, const char*>> usimAdfEfs();
 // returns nullptr if unknown (still acquired, just labeled "UNKNOWN").
 const char* nameFor(uint16_t fileId);
 
+// True for catalog entries that hold cryptographic key material rather than
+// subscriber data - currently EF_Kc/EF_KcGPRS (3GPP TS 51.011 10.3.9/10.3.20),
+// the last GSM/GPRS ciphering session key the card computed. Ki (the card's
+// long-term authentication key) is never readable via any EF at all, so this
+// list only needs to cover keys that genuinely are exposed as files.
+// Acquisition still detects and hashes these files (proving they exist and
+// what they are, for the educational point of the exercise), but their raw
+// bytes are never written to disk - see AcquisitionResult / writeEvidenceZip.
+bool isSensitiveKeyMaterial(const std::string& fileName);
+
 } // namespace forandsim::catalog

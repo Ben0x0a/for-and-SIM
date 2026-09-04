@@ -7,6 +7,7 @@
 #include "ef_catalog.h"
 #include "file_walker.h"
 #include "hashing.h"
+#include "platform_info.h"
 #include "time_utils.h"
 
 #ifdef _WIN32
@@ -201,6 +202,8 @@ AcquisitionResult acquire(PcscTransport& transport,
     result.startedAt = std::chrono::system_clock::now();
     result.workstationHostname = hostname();
     result.workstationUser = currentUser();
+    result.platform = platformDescription();
+    result.toolExeSha256 = currentExecutableSha256();
 
     auto log = [&](const std::string& msg) {
         std::string stamped = "[" + isoTimestamp(std::chrono::system_clock::now()) + "] " + msg;

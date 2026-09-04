@@ -292,11 +292,15 @@ int run() {
 
         ImGui::SetNextWindowPos(ImVec2(0, 0));
         ImGui::SetNextWindowSize(ImGui::GetIO().DisplaySize);
+        ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(20, 16));
         ImGui::Begin("For&SIM", nullptr,
                       ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove |
                           ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoTitleBar);
 
-        float fieldWidth = ImGui::GetContentRegionAvail().x * 0.8f;
+        // Leave room on the right for trailing buttons (Browse..., Check PIN
+        // status, ...) placed with SameLine() after these fields, so they
+        // never end up flush against the window's edge.
+        float fieldWidth = ImGui::GetContentRegionAvail().x * 0.68f;
 
         ImGui::Text("SIM/USIM forensic acquisition");
         ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.1f, 1.0f),
@@ -435,6 +439,7 @@ int run() {
         ImGui::EndChild();
 
         ImGui::End();
+        ImGui::PopStyleVar(); // WindowPadding
 
         ImGui::Render();
         glViewport(0, 0, (int)ImGui::GetIO().DisplaySize.x, (int)ImGui::GetIO().DisplaySize.y);

@@ -181,7 +181,6 @@ int run(int argc, char** argv) {
 
         std::cout << "Evidence container: " << paths.zipPath << "\n";
         std::cout << "Evidence SHA-256:   " << zipInfo.sha256 << "\n";
-        std::cout << "Hash sidecar:       " << zipInfo.sidecarPath << "\n";
         std::cout << "HTML report:        " << paths.htmlPath << "\n";
         return 0;
     } catch (const std::exception& e) {

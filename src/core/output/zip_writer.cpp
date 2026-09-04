@@ -40,12 +40,14 @@ std::vector<uint8_t> concatenatedContent(const ExtractedFile& f) {
 std::string buildMetaText(const AcquisitionResult& result) {
     std::ostringstream m;
     m << kToolName << " - SIM/USIM Forensic Acquisition Tool\n"
-      << "Version: " << kToolVersion << "\n"
-      << "Repository: " << kRepoWeb << "\n\n"
+      << "Version:            " << kToolVersion << "\n"
+      << "Repository:         " << kRepoWeb << "\n"
+      << "Platform:           " << result.platform << "\n"
+      << "Executable SHA-256: " << result.toolExeSha256.value_or("(unavailable)") << "\n\n"
       << "This file's own SHA-256 is recorded in manifest.json under files[].\n"
       << "Note: the evidence zip's own SHA-256 cannot be embedded here (writing it into this\n"
-      << "file would change the zip and invalidate that very hash); it is instead written to\n"
-      << "a sidecar '<zip>.sha256' file next to the zip, and shown in the HTML report.\n\n"
+      << "file would change the zip and invalidate that very hash); it is shown in the HTML\n"
+      << "report and manifest.json instead.\n\n"
       << "Case identifier:    " << result.caseMetadata.caseIdentifier << "\n"
       << "Piece/exhibit #:    " << result.caseMetadata.pieceNumber << "\n"
       << "Operator:           " << result.caseMetadata.operatorName << "\n"
@@ -80,6 +82,15 @@ std::string buildMetaText(const AcquisitionResult& result) {
         }
     }
     m << "\nTotal files acquired: " << result.files.size() << "\n";
+
+    size_t sensitiveCount = 0;
+    for (auto& f : result.files) if (f.sensitive) ++sensitiveCount;
+    if (sensitiveCount > 0) {
+        m << "\nCryptographic key material detected: " << sensitiveCount << " file(s).\n"
+          << "Their content was hashed (see files[] in manifest.json) but never written to\n"
+          << "disk, to avoid leaving usable key material in this evidence folder.\n";
+    }
+
     return m.str();
 }
 
@@ -96,7 +107,16 @@ EvidenceZipResult writeEvidenceZip(const AcquisitionResult& result, const std::s
 
     for (const auto& f : result.files) {
         std::vector<uint8_t> content = concatenatedContent(f);
-        addFile(zip, "files/" + f.path + ".bin", content);
+
+        // Cryptographic key material (EF_Kc/EF_KcGPRS) is detected and hashed
+        // like any other file, but its raw bytes are deliberately never
+        // written to disk - only the hash is kept, which proves the key
+        // existed and (for matching purposes) what it was, without leaving
+        // usable key material sitting in an evidence folder a student could
+        // forget to delete.
+        if (!f.sensitive) {
+            addFile(zip, "files/" + f.path + ".bin", content);
+        }
 
         manifestFiles.push_back({
             {"path", f.path},
@@ -106,6 +126,8 @@ EvidenceZipResult writeEvidenceZip(const AcquisitionResult& result, const std::s
             {"size_bytes", content.size()},
             {"structure_unknown", f.structureUnknown},
             {"size_mismatch", f.sizeMismatch},
+            {"sensitive", f.sensitive},
+            {"content_withheld", f.sensitive},
         });
     }
 
@@ -131,6 +153,9 @@ EvidenceZipResult writeEvidenceZip(const AcquisitionResult& result, const std::s
             {"name", kToolName},
             {"version", kToolVersion},
             {"repository_web", kRepoWeb},
+            {"platform", result.platform},
+            {"executable_sha256", result.toolExeSha256.has_value()
+                 ? json(*result.toolExeSha256) : json(nullptr)},
         }},
         {"case", {
             {"case_identifier", result.caseMetadata.caseIdentifier},
@@ -189,8 +214,8 @@ EvidenceZipResult writeEvidenceZip(const AcquisitionResult& result, const std::s
     mz_zip_writer_end(&zip);
 
     // The zip's own hash can only be computed after it is finalized on disk,
-    // and can't be embedded inside itself without invalidating that hash -
-    // so it's externalized as a sidecar file (same pattern as disk-image tools).
+    // and can't be embedded inside itself without invalidating that hash - so
+    // it's just returned here for the caller to show in the HTML report.
     std::ifstream zipIn(zipPath, std::ios::binary);
     if (!zipIn) {
         throw std::runtime_error("failed to reopen '" + zipPath + "' to hash it");
@@ -199,15 +224,6 @@ EvidenceZipResult writeEvidenceZip(const AcquisitionResult& result, const std::s
                                    std::istreambuf_iterator<char>());
     EvidenceZipResult zipResult;
     zipResult.sha256 = sha256Hex(zipBytes);
-    zipResult.sidecarPath = zipPath + ".sha256";
-
-    std::string zipBasename = zipPath;
-    if (auto pos = zipBasename.find_last_of("/\\"); pos != std::string::npos) {
-        zipBasename = zipBasename.substr(pos + 1);
-    }
-    std::ofstream sidecar(zipResult.sidecarPath, std::ios::binary);
-    sidecar << zipResult.sha256 << "  " << zipBasename << "\n";
-
     return zipResult;
 }
 

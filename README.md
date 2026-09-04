@@ -23,19 +23,19 @@ Repository: [https://github.com/Ben0x0a/for-and-SIM](https://github.com/Ben0x0a/
 - Produces, in `<output dir>/<case>/` (a dedicated subfolder per case, so
   multiple acquisitions in the same output directory never mix their files):
   - `<case>.zip` - the evidence container: raw bytes of every acquired file under
-    `files/`, a `values.json` with a fixed set of decoded identity values
-    (ICCID, IMSI, MSISDN, SPN, FPLMN, MCC/MNC/LAC from the last registered
-    cell) always present with an explicit status even when empty (e.g. no PIN
-    supplied), a `manifest.json` with case metadata, tool provenance, chain of
-    custody and a SHA-256 per file, and a human-readable `for-and-sim-meta.txt`
-    summary of all of the above (itself hashed and recorded in the manifest).
-  - `<case>.zip.sha256` - a sidecar file with the SHA-256 of the zip itself. This
-    can't live inside the zip (writing it in would change the zip and invalidate
-    the hash), so it's external, same as disk-imaging tools do.
-  - `<case>.html` - a standalone, self-contained chain-of-custody report (case
-    info, timestamps, workstation, tool version/repo, the zip's own hash,
-    key results, per-file hashes, extracted-file tree, full ISO-8601-timestamped
-    acquisition log).
+    `files/` (except cryptographic key material - see "Sensitive values" below),
+    a `values.json` with a fixed set of decoded identity values (ICCID, IMSI,
+    MSISDN, SPN, FPLMN, MCC/MNC/LAC from the last registered cell) always
+    present with an explicit status even when empty (e.g. no PIN supplied), a
+    `manifest.json` with case metadata, tool provenance (including a hash of
+    the executable itself and the platform it ran on), chain of custody and a
+    SHA-256 per file, and a human-readable `for-and-sim-meta.txt` summary of
+    all of the above (itself hashed and recorded in the manifest).
+  - `<case>.html` - a standalone, self-contained report with a linked table of
+    contents: case info, tool provenance, acquisition results (the evidence
+    zip's own hash, interpreted values, and the full extracted-file listing),
+    chain of custody & integrity, and the full ISO-8601-timestamped acquisition
+    log.
 
   See [docs/REPORT.md](docs/REPORT.md) for a field-by-field explanation of
   everything in the zip and the HTML report, and
@@ -105,6 +105,30 @@ mis-answering `SELECT`, not as 8 genuine hidden files, and stops that scan
 early with a warning). If it's still too slow for your reader, turn scanning
 off entirely with `--no-scan-hidden` (CLI) or the GUI checkbox — you'll still
 get every catalog file, just not the brute-force hidden-file search.
+
+## Sensitive values are never written to disk
+
+A SIM/USIM card can hold cryptographic key material, not just subscriber data:
+`EF_Kc` and `EF_KcGPRS` (3GPP TS 51.011 10.3.9/10.3.20) hold the last GSM/GPRS
+ciphering session key the card computed. (`Ki`, the card's long-term
+authentication key, is *not* included here because it structurally can't be:
+no EF ever exposes it - it's used internally by the card's crypto algorithm
+and is never readable via any `SELECT`/`READ` command.)
+
+For teaching purposes it's worth showing that this key material exists on the
+card at all - but leaving actual key bytes sitting in a `.zip` a student might
+forget to delete is a real risk, not just a forensic nicety. So for `EF_Kc`/
+`EF_KcGPRS`, For&SIM still selects and reads the file (to prove it's there and
+capture its size/hash) but **never writes its raw content anywhere on disk**:
+not to `files/` in the zip, not to any log line, nowhere. The report and
+manifest still list the file with its SHA-256 and a `content_withheld: true`
+flag, so the acquisition is fully accounted for without the actual key
+material ever touching your disk.
+
+This only covers the two known key-material EFs in the catalog - a
+non-standard/hidden file discovered by the brute-force scan (labeled
+`UNKNOWN_xxxx`, since its purpose is unknown) is *not* automatically withheld,
+because For&SIM has no way to know it's sensitive.
 
 ## Building
 

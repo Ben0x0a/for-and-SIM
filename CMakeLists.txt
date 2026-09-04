@@ -29,6 +29,7 @@ add_library(forandsim_core STATIC
   src/core/acquisition_engine.cpp
   src/core/hashing.cpp
   src/core/time_utils.cpp
+  src/core/platform_info.cpp
   src/core/output/report_common.cpp
   src/core/output/output_paths.cpp
   src/core/output/zip_writer.cpp

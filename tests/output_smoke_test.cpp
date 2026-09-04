@@ -2,11 +2,13 @@
 // the zip/HTML output layer end to end. Exits non-zero on any check failure.
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <sstream>
 
 #include "acquisition_engine.h"
 #include "html_report.h"
+#include "miniz.h"
 #include "zip_writer.h"
 
 using namespace forandsim;
@@ -72,6 +74,16 @@ int main() {
     adnFile.sha256 = "cafef00d";
     result.files.push_back(adnFile);
 
+    ExtractedFile kcFile;
+    kcFile.path = "MF/DF_GSM/Kc";
+    kcFile.fileId = 0x6F20;
+    kcFile.name = "Kc";
+    kcFile.structure = apdu::FileStructure::Transparent;
+    kcFile.rawData = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88};
+    kcFile.sha256 = "feedface";
+    kcFile.sensitive = true;
+    result.files.push_back(kcFile);
+
     result.log = {"Selecting MF", "Reading ICCID", "PIN verified", "Walk complete"};
 
     const std::string zipPath = "smoke_test_output.zip";
@@ -87,7 +99,18 @@ int main() {
     zipCheck.read(magic, 4);
     check(magic[0] == 'P' && magic[1] == 'K', "zip file starts with PK local-file-header magic");
 
-    check(std::ifstream(zipInfo.sidecarPath).good(), "zip sidecar hash file was created");
+    // Security-critical check: cryptographic key material (Kc) must never be
+    // written into the evidence zip, even though it's listed in the manifest.
+    {
+        mz_zip_archive reader;
+        memset(&reader, 0, sizeof(reader));
+        check(mz_zip_reader_init_file(&reader, zipPath.c_str(), 0), "zip reopened for content check");
+        int iccidIndex = mz_zip_reader_locate_file(&reader, "files/MF/ICCID.bin", nullptr, 0);
+        check(iccidIndex >= 0, "non-sensitive file (ICCID) content IS present in the zip");
+        int kcIndex = mz_zip_reader_locate_file(&reader, "files/MF/DF_GSM/Kc.bin", nullptr, 0);
+        check(kcIndex < 0, "sensitive file (Kc) content is NOT present in the zip");
+        mz_zip_reader_end(&reader);
+    }
 
     output::writeHtmlReport(result, htmlPath, zipFileName, zipInfo);
 
@@ -99,9 +122,12 @@ int main() {
     check(html.find(zipInfo.sha256) != std::string::npos, "html report contains the zip's SHA-256");
     check(html.find("For&SIM") != std::string::npos, "html report contains tool name");
     check(html.find("for-and-SIM") != std::string::npos, "html report contains repo link");
+    check(html.find("Interpreted values") != std::string::npos, "html report has Interpreted values section");
+    check(html.find("Acquisition results") != std::string::npos, "html report has Acquisition results section");
+    check(html.find("content withheld from disk") != std::string::npos,
+          "html report flags the sensitive Kc file");
 
     std::remove(zipPath.c_str());
-    std::remove(zipInfo.sidecarPath.c_str());
     std::remove(htmlPath.c_str());
 
     if (failures > 0) {

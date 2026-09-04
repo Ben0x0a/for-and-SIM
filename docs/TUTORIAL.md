@@ -69,10 +69,10 @@ other at all. Reading the ICCID never requires a PIN:
 - `--no-pin` means "don't even try a PIN, just read what's publicly available"
   (currently: just the ICCID).
 
-You'll get `./out/DEMO-001/DEMO-001.zip`, `./out/DEMO-001/DEMO-001.zip.sha256`, and
-`./out/DEMO-001/DEMO-001.html` (results always go in a `<case>/` subfolder of
-`--output`, so repeated acquisitions never overwrite each other by accident -
-running the same `--case`/`--output` again refuses unless you add `--force`).
+You'll get `./out/DEMO-001/DEMO-001.zip` and `./out/DEMO-001/DEMO-001.html`
+(results always go in a `<case>/` subfolder of `--output`, so repeated
+acquisitions never overwrite each other by accident - running the same
+`--case`/`--output` again refuses unless you add `--force`).
 Open the `.html` file in a browser - with no PIN, most sections will be short
 (one extracted file: ICCID; the "Key results" table will show IMSI/MSISDN/etc.
 as "not read (no PIN)" rather than just being blank), which is expected.
@@ -153,19 +153,25 @@ Run `./build/forandsim` with no arguments. Fill in the form top to bottom:
 
 Open `<case>.html` in any browser. Work through it top to bottom:
 
-- **Case information / Tool provenance / Evidence container** - confirms who ran
-  this, with what tool version, and gives you the zip's hash to verify later.
-- **Chain of custody** - when, where, on what workstation, with what reader,
-  and a redacted note if a PIN was entered (never the PIN itself).
-- **Key results** - ICCID/IMSI/MSISDN/SPN/FPLMN/MCC/MNC/LAC/TAC/CID, always
-  listed with a status even when empty (see [REPORT.md](REPORT.md) for what
-  each status means).
-- **Read-only / integrity guarantee** - shows the PIN attempt count *before* it was
-  used, and the verification pass result (should say every file matched).
-- **Extracted files** - every file read off the card, its hash, and its decoded
-  value where applicable (ICCID, IMSI). Check the **Flags** column for
-  `structure unknown` or `size mismatch` - these mean that particular file's
-  content might be incomplete or non-standard, and are worth a closer look.
+Use the table of contents at the top to jump around:
+
+- **Case information / Tool provenance** - confirms who ran this, with what
+  tool version, on what platform, and the exact executable's own hash.
+- **Acquisition results** - three parts: the evidence zip's own hash (no
+  separate sidecar file - it's just recorded here and in `manifest.json`),
+  **Interpreted values** (ICCID/IMSI/MSISDN/SPN/FPLMN/MCC/MNC/LAC/TAC/CID,
+  always listed with a status even when empty - see [REPORT.md](REPORT.md) for
+  what each status means), and **Extracted files** (every file read off the
+  card, its hash, and its decoded value where applicable). Check the **Flags**
+  column for `structure unknown` or `size mismatch` - these mean that
+  particular file's content might be incomplete or non-standard, and are worth
+  a closer look. A `Kc`/`KcGPRS` row will say "cryptographic key material -
+  content withheld from disk" - that's expected, see the README's "Sensitive
+  values" section.
+- **Chain of custody & integrity** - when, where, on what workstation, with
+  what reader, a redacted note if a PIN was entered (never the PIN itself),
+  the PIN attempt count *before* it was used, and the verification pass result
+  (should say every file matched).
 - **Acquisition log** - the full blow-by-blow; read it if anything above looks odd.
 
 For exactly what every field/section/JSON key means, see
@@ -173,11 +179,13 @@ For exactly what every field/section/JSON key means, see
 
 ## 8. Verifying the evidence container later
 
-Anyone who receives just the `.zip` and its `.sha256` sidecar can confirm nothing
-was altered since acquisition:
+Anyone who receives the `.zip` can confirm nothing was altered since
+acquisition by comparing its hash against the one recorded in the matching
+`.html` report (or `manifest.json` inside the zip itself, for hashes of the
+individual extracted files):
 
 ```
-shasum -a 256 -c DEMO-001.zip.sha256
+shasum -a 256 DEMO-001.zip
 ```
 
 Unzip it, and every individual file's hash is listed in `manifest.json` (and in

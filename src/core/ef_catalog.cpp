@@ -83,4 +83,8 @@ const char* nameFor(uint16_t fileId) {
     return it == kNames.end() ? nullptr : it->second;
 }
 
+bool isSensitiveKeyMaterial(const std::string& fileName) {
+    return fileName == "Kc" || fileName == "KcGPRS";
+}
+
 } // namespace forandsim::catalog

@@ -110,9 +110,12 @@ void readKnownEfs(CardSession& session,
         file.name = name;
         file.path = parentPath + "/" + name;
         file.dfPath = parentIds;
+        file.sensitive = catalog::isSensitiveKeyMaterial(file.name);
         readSelectedEf(session, info, file, file.path, progress);
         if (progress) {
-            progress("Read " + file.path);
+            progress(file.sensitive ? "Read " + file.path + " (cryptographic key material - "
+                                       "content will not be written to disk)"
+                                     : "Read " + file.path);
         }
         out.push_back(std::move(file));
     }

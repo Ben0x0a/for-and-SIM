@@ -51,6 +51,11 @@ struct ExtractedFile {
     // True if a READ BINARY/RECORD returned fewer bytes than the file's
     // declared size/record length — a truncated or inconsistent read.
     bool sizeMismatch = false;
+    // True for cryptographic key material (EF_Kc/EF_KcGPRS) — see
+    // catalog::isSensitiveKeyMaterial. rawData/records are still populated in
+    // memory (so sha256 above is computed normally) but the output layer
+    // (writeEvidenceZip) never writes this file's raw content to disk.
+    bool sensitive = false;
 };
 
 enum class AcquisitionMode {
@@ -65,6 +70,8 @@ struct AcquisitionResult {
     std::string workstationHostname;
     std::string workstationUser;
     std::string readerName;
+    std::string platform;                    // e.g. "macOS arm64"
+    std::optional<std::string> toolExeSha256; // hash of the running executable
 
     std::vector<uint8_t> atr;
     std::string iccid;
