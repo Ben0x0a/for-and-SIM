@@ -145,11 +145,13 @@ struct AcquisitionOptions {
     bool verify = true;
 
     // Brute-force probes non-standard EF/DF id ranges at every level to catch
-    // hidden/undocumented files (see file_walker.h). This can be slow on a
-    // slow reader, and cards that answer SELECT "successfully" for almost any
-    // id (some test/simulator cards) can make it explore a very large number
-    // of phantom files; disable it for a much faster catalog-only walk.
-    bool scanNonStandardFiles = true;
+    // hidden/undocumented files (see file_walker.h). Off by default: it can be
+    // slow on a slow reader, and cards that answer SELECT "successfully" for
+    // almost any id (some test/simulator cards) can make it explore a very
+    // large number of phantom files even with the built-in safety caps.
+    // Enable it for a slower but more thorough walk that also looks for
+    // files the standard catalog doesn't know about.
+    bool scanNonStandardFiles = false;
 
     // If non-null and set to true from another thread, acquire() stops at the
     // next checkpoint (between files/probes) and returns with `cancelled` set,

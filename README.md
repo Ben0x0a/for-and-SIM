@@ -104,17 +104,20 @@ Two more safeguards, unrelated to the PIN:
 
 ## Non-standard/hidden file scanning
 
-Scanning is thorough by default but can be slow, especially on a slow reader or
-a card that mishandles `SELECT` (a small number of test/simulator cards answer
-"success" for almost any file id, which without safeguards would make the scan
-explore an enormous number of phantom files). Three protections are built in:
-a cycle guard (never re-enters an id that's already an ancestor of the current
-position), a depth cap (non-standard DF nesting stops after 3 levels), and an
-anomaly cap (more than ~8 hits in one 512-id scan is treated as the card
-mis-answering `SELECT`, not as 8 genuine hidden files, and stops that scan
-early with a warning). If it's still too slow for your reader, turn scanning
-off entirely with `--no-scan-hidden` (CLI) or the GUI checkbox — you'll still
-get every catalog file, just not the brute-force hidden-file search.
+**Off by default** - a full acquisition without it already reads every catalog
+EF (everything `ef_catalog.h` knows about); turn it on with `--scan-hidden`
+(CLI) or the GUI checkbox when you specifically want to search for
+undocumented files too, since it can be slow: it's a brute-force probe of
+every non-standard EF/DF id at every level, which means many extra round-trips
+to the card, more so on a slow reader or a card that mishandles `SELECT` (a
+small number of test/simulator cards answer "success" for almost any file id,
+which without safeguards would make the scan explore an enormous number of
+phantom files). Three protections are built in regardless: a cycle guard
+(never re-enters an id that's already an ancestor of the current position), a
+depth cap (non-standard DF nesting stops after 3 levels), and an anomaly cap
+(more than ~8 hits in one 512-id scan is treated as the card mis-answering
+`SELECT`, not as 8 genuine hidden files, and stops that scan early with a
+warning).
 
 ## Sensitive values are never written to disk
 
@@ -182,12 +185,13 @@ Check "I am authorized to examine this exhibit", fill in case identifier,
 piece/exhibit number, operator, notes and output directory (type a path, click
 "Browse...", or drag and drop a folder onto the window), pick a reader,
 optionally click "Check PIN status" first, then either enter the PIN or check
-"Extract without PIN (ICCID only)", and click Start. "Verify" and "Scan for
-non-standard/hidden files" are both checked by default (uncheck either for a
-quicker but less thorough acquisition). While running, a "Stop" button appears
-next to the progress text — it cancels cleanly at the next checkpoint and still
-writes out whatever was read so far, rather than a hard kill. If results already
-exist in the target folder, a confirmation dialog appears before overwriting.
+"Extract without PIN (ICCID only)", and click Start. "Verify" is checked by
+default; "Scan for non-standard/hidden files" is *not* (check it if you
+specifically want to search for undocumented files too - see the section
+below for the tradeoff). While running, a "Stop" button appears next to the
+progress text — it cancels cleanly at the next checkpoint and still writes out
+whatever was read so far, rather than a hard kill. If results already exist in
+the target folder, a confirmation dialog appears before overwriting.
 
 ### CLI (headless)
 
@@ -197,8 +201,10 @@ forandsim --check-pin --reader "ACS ACR38U-CCID 0"
 forandsim --reader "ACS ACR38U-CCID 0" --case CASE-2026-014 --piece P1 \
           --operator "J. Examiner" --output ./out --confirm-authorized --pin 1234
 forandsim --reader "ACS ACR38U-CCID 0" --case CASE-2026-014 --piece P1 \
-          --operator "J. Examiner" --output ./out --confirm-authorized --no-pin \
-          --no-verify --no-scan-hidden
+          --operator "J. Examiner" --output ./out --confirm-authorized --pin 1234 \
+          --scan-hidden
+forandsim --reader "ACS ACR38U-CCID 0" --case CASE-2026-014 --piece P1 \
+          --operator "J. Examiner" --output ./out --confirm-authorized --no-pin --no-verify
 ```
 
 Results land in `./out/CASE-2026-014/`. Re-running with the same `--case` and

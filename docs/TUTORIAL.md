@@ -121,9 +121,9 @@ Once you're confident in the PIN:
 
 (Verification is on by default - it re-reads every file afterward to confirm
 nothing changed; add `--no-verify` if you want a faster, less-confirmed run.
-The non-standard/hidden-file scan is also on by default; add `--no-scan-hidden`
-if it's too slow on your reader/card - you'll still get every catalog file,
-just not the brute-force search for undocumented ones.)
+The non-standard/hidden-file scan is *off* by default - you already get every
+catalog file without it; add `--scan-hidden` if you specifically want to
+brute-force search for undocumented files too, which is slower.)
 
 Watch the console output: it prints every step as it happens (`[forandsim] ...`
 lines, each timestamped) - selecting MF, verifying the PIN, walking
@@ -149,8 +149,10 @@ Run `./build/forandsim` with no arguments. Fill in the form top to bottom:
    picker, or drag and drop a folder onto the window.
 5. Optionally click **"Check PIN status"** first (same as step 4 above).
 6. Either type the PIN, or check **"Extract without PIN (ICCID only)"**.
-7. Leave **"Verify"** and **"Scan for non-standard/hidden files"** checked (both
-   on by default) unless you want a quicker, less thorough run.
+7. Leave **"Verify"** checked (on by default). Only check **"Scan for
+   non-standard/hidden files"** if you specifically want to brute-force search
+   for undocumented files too - it's off by default because it's slower and
+   you already get every catalog file without it.
 8. Click **Start acquisition** and watch the log panel at the bottom. If results
    already exist in that case folder, you'll be asked to confirm overwriting
    them. While it runs, a **Stop** button lets you cancel cleanly - whatever was

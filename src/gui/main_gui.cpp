@@ -111,7 +111,7 @@ struct AppState {
     char pin[16] = "";
     bool noPin = false;
     bool verify = true;
-    bool scanNonStandardFiles = true;
+    bool scanNonStandardFiles = false;
     bool authorizationConfirmed = false;
 
     std::atomic<bool> running{false};

@@ -25,7 +25,7 @@ void printUsage() {
         "  forandsim --check-pin --reader <name>\n"
         "  forandsim --reader <name> --case <id> --piece <n> --operator <name>\n"
         "                --output <dir> --confirm-authorized [--pin <digits> | --no-pin]\n"
-        "                [--notes <text>] [--no-verify] [--no-scan-hidden] [--force]\n\n"
+        "                [--notes <text>] [--no-verify] [--scan-hidden] [--force]\n\n"
         "Options:\n"
         "  --list-readers        List detected PC/SC readers (with each card's ICCID, if\n"
         "                        present) and exit\n"
@@ -45,10 +45,9 @@ void printUsage() {
         "                        every file). Verification is ON by default; it roughly\n"
         "                        doubles acquisition time but is the only way to confirm\n"
         "                        nothing changed across every PIN-gated file, not just ICCID.\n"
-        "  --no-scan-hidden      Skip the brute-force probe for non-standard/hidden EFs and\n"
-        "                        DFs. Scanning is ON by default; it can be slow on a slow\n"
-        "                        reader, especially on cards that answer SELECT 'successfully'\n"
-        "                        for almost any id.\n"
+        "  --scan-hidden         Also brute-force probe for non-standard/hidden EFs and DFs.\n"
+        "                        Off by default: it can be slow on a slow reader, especially\n"
+        "                        on cards that answer SELECT 'successfully' for almost any id.\n"
         "  --force               Overwrite an existing result folder instead of refusing\n"
         "  --help                Show this message\n";
 }
@@ -99,8 +98,8 @@ int run(int argc, char** argv) {
             noPin = true;
         } else if (arg == "--no-verify") {
             options.verify = false;
-        } else if (arg == "--no-scan-hidden") {
-            options.scanNonStandardFiles = false;
+        } else if (arg == "--scan-hidden") {
+            options.scanNonStandardFiles = true;
         } else if (arg == "--force") {
             force = true;
         } else {
