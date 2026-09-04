@@ -17,8 +17,8 @@ reference once you have a report in front of you.
 ## 1. Build it
 
 ```
-git clone https://github.com/Ben0x0a/for-SIM.git
-cd for-SIM
+git clone https://github.com/Ben0x0a/for-and-SIM.git
+cd for-and-SIM
 cmake -S . -B build -DFORANDSIM_BUILD_GUI=ON
 cmake --build build --config Release
 ```

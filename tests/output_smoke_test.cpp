@@ -98,7 +98,7 @@ int main() {
     check(html.find("MF/DF_TELECOM/ADN") != std::string::npos, "html report lists ADN file path");
     check(html.find(zipInfo.sha256) != std::string::npos, "html report contains the zip's SHA-256");
     check(html.find("For&SIM") != std::string::npos, "html report contains tool name");
-    check(html.find("for-SIM") != std::string::npos, "html report contains repo link");
+    check(html.find("for-and-SIM") != std::string::npos, "html report contains repo link");
 
     std::remove(zipPath.c_str());
     std::remove(zipInfo.sidecarPath.c_str());

@@ -4,7 +4,7 @@ A SIM/USIM forensic acquisition tool for digital forensics education, originally
 for a classroom setting but usable by anyone who wants to learn how SIM/USIM forensic
 acquisition works.
 
-Repository: [https://github.com/Ben0x0a/for-SIM](https://github.com/Ben0x0a/for-SIM)
+Repository: [https://github.com/Ben0x0a/for-and-SIM](https://github.com/Ben0x0a/for-and-SIM)
 
 > **Educational tool — not for real cases.** This project was built for teaching how
 > SIM/USIM forensic acquisition works. It has not been validated against real forensic
