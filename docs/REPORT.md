@@ -48,27 +48,12 @@ between rebuilds.
 
 ### Acquisition results
 
-Everything the acquisition actually produced, in three parts:
+What the acquisition actually produced, in two subsections:
 
-- **Evidence zip** - the zip's filename and its own SHA-256. This hash is *not*
-  inside the zip (writing it in would change the zip's bytes and invalidate the
-  very hash being recorded), so it's recorded here and in `manifest.json`
-  instead - there's no separate sidecar file.
-- **Interpreted values** - a fixed set of identity fields (ICCID, IMSI, MSISDN,
-  SPN, FPLMN, MCC, MNC, LAC, TAC, CID), always listed in the same order
-  regardless of acquisition mode, each with a Value and a Status so an empty
-  field is never ambiguous:
-  - `found` - decoded successfully; value shown.
-  - `present on card, not decoded` - the file was read but this tool doesn't
-    (yet) decode its content into a value.
-  - `not read (no PIN)` - acquisition was ICCID-only; this field needs a PIN.
-  - `not present on card` - a full acquisition was done but this file/value
-    wasn't found or the card doesn't have it.
-  - `not accessible` (TAC/CID only) - these require `EF_EPSLOCI` under the USIM
-    ADF, which needs an AID-based `SELECT` this tool doesn't implement (see the
-    README's known limitations); the Note column says so.
-  - MCC/MNC/LAC come from `EF_LOCI` (last registered GSM/UMTS cell); TAC (LTE
-    tracking area) and CID (cell id) are not present in that classic file at all.
+- **Container information** - the zip's filename and its own SHA-256. This
+  hash is *not* inside the zip (writing it in would change the zip's bytes and
+  invalidate the very hash being recorded), so it's recorded here and in
+  `manifest.json` instead - there's no separate sidecar file.
 - **Extracted files** - one row per file actually read off the card: its path in
   the filesystem, its 2-byte file id, its structure (transparent/linear-fixed/
   cyclic), size, SHA-256, any decoded value, and a **Flags** column noting:
@@ -82,6 +67,27 @@ Everything the acquisition actually produced, in three parts:
     deliberately never written anywhere on disk - see the README's "Sensitive
     values" section. The SHA-256 shown is still real and can be used to
     confirm/match the key without the key itself ever leaving the card.
+
+### Extraction results
+
+A fixed set of identity fields (ICCID, IMSI, MSISDN, SPN, FPLMN, MCC, MNC, LAC,
+TAC, CID), always listed in the same order regardless of acquisition mode, each
+with a Value, a Status, and a Note that defines what the field actually means
+(so this table is self-explanatory without GLOSSARY.md open alongside it).
+Status is one of:
+
+- `found` - decoded successfully; value shown.
+- `present on card, not decoded` - the file was read but this tool doesn't
+  (yet) decode its content into a value.
+- `not read (no PIN)` - acquisition was ICCID-only; this field needs a PIN.
+- `not present on card` - a full acquisition was done but this file/value
+  wasn't found or the card doesn't have it.
+- `not accessible` (TAC/CID only) - these require `EF_EPSLOCI` under the USIM
+  ADF, which needs an AID-based `SELECT` this tool doesn't implement (see the
+  README's known limitations); the Note column explains why.
+
+MCC/MNC/LAC come from `EF_LOCI` (last registered GSM/UMTS cell); TAC (LTE
+tracking area) and CID (cell id) are not present in that classic file at all.
 
 ### Chain of custody & integrity
 
@@ -156,7 +162,7 @@ The same information as the HTML report, structured for machine parsing:
 }
 ```
 
-One entry per field described in the HTML report's "Interpreted values" section
+One entry per field described in the HTML report's "Extraction results" section
 above (`value`, `status`, and `path` - the file path it came from, or `null` if
 there wasn't one). Every non-sensitive acquired file still gets its raw bytes
 under `files/` regardless of whether it made it into this fixed list.
@@ -165,7 +171,7 @@ under `files/` regardless of whether it made it into this fixed list.
 
 A plain-text rendering of most of `manifest.json`, meant to be readable without any
 tooling (e.g. printed, or opened in Notepad). It intentionally does **not** include
-the zip's own hash - see "Evidence zip" above for why that's impossible to
+the zip's own hash - see "Container information" above for why that's impossible to
 embed - and says so explicitly. If any cryptographic key material was found, it
 says how many files and reiterates that their content wasn't written to disk.
 

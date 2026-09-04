@@ -35,6 +35,31 @@ namespace forandsim::gui {
 
 namespace {
 
+// Dear ImGui's InputTextMultiline (used for the selectable/copyable log
+// panel) doesn't word-wrap long lines on its own - it scrolls horizontally
+// instead. Insert real newlines at word boundaries so it reads naturally.
+std::string wrapLine(const std::string& line, size_t maxCols) {
+    std::string out;
+    size_t col = 0;
+    size_t i = 0;
+    while (i < line.size()) {
+        size_t nextSpace = line.find(' ', i);
+        size_t wordEnd = (nextSpace == std::string::npos) ? line.size() : nextSpace;
+        size_t wordLen = wordEnd - i;
+        if (col > 0 && col + 1 + wordLen > maxCols) {
+            out += '\n';
+            col = 0;
+        } else if (col > 0) {
+            out += ' ';
+            ++col;
+        }
+        out += line.substr(i, wordLen);
+        col += wordLen;
+        i = (nextSpace == std::string::npos) ? line.size() : nextSpace + 1;
+    }
+    return out;
+}
+
 bool isDirectory(const std::string& path) {
 #ifdef _WIN32
     DWORD attrs = GetFileAttributesA(path.c_str());
@@ -438,14 +463,21 @@ int run() {
         }
 
         ImGui::Separator();
-        ImGui::Text("Log");
-        ImGui::BeginChild("log", ImVec2(0, 0), true);
+        ImGui::Text("Log (selectable - click and drag, or Ctrl+A / Ctrl+C, to copy)");
         {
-            std::lock_guard<std::mutex> lock(state.logMutex);
-            for (auto& line : state.log) ImGui::TextUnformatted(line.c_str());
+            std::string logText;
+            {
+                std::lock_guard<std::mutex> lock(state.logMutex);
+                for (auto& line : state.log) {
+                    logText += wrapLine(line, 100);
+                    logText += '\n';
+                }
+            }
+            std::vector<char> logBuf(logText.begin(), logText.end());
+            logBuf.push_back('\0');
+            ImGui::InputTextMultiline("##log", logBuf.data(), logBuf.size(), ImVec2(-1, -1),
+                                       ImGuiInputTextFlags_ReadOnly);
         }
-        if (state.running) ImGui::SetScrollHereY(1.0f);
-        ImGui::EndChild();
 
         ImGui::End();
         ImGui::PopStyleVar(); // WindowPadding

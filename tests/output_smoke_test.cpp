@@ -122,8 +122,11 @@ int main() {
     check(html.find(zipInfo.sha256) != std::string::npos, "html report contains the zip's SHA-256");
     check(html.find("For&SIM") != std::string::npos, "html report contains tool name");
     check(html.find("for-and-SIM") != std::string::npos, "html report contains repo link");
-    check(html.find("Interpreted values") != std::string::npos, "html report has Interpreted values section");
+    check(html.find("Extraction results") != std::string::npos, "html report has Extraction results section");
     check(html.find("Acquisition results") != std::string::npos, "html report has Acquisition results section");
+    check(html.find("Container information") != std::string::npos, "html report has Container information subsection");
+    check(html.find("International Mobile Subscriber Identity") != std::string::npos,
+          "html report's interpreted values include a plain-language IMSI definition");
     check(html.find("content withheld from disk") != std::string::npos,
           "html report flags the sensitive Kc file");
 

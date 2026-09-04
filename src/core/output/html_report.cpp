@@ -64,9 +64,9 @@ void writeHtmlReport(const AcquisitionResult& result, const std::string& htmlPat
     }
     html << "<a href=\"#tool-provenance\">Tool provenance</a>"
          << "<a href=\"#acquisition-results\">Acquisition results</a>"
-         << "<a class=\"sub\" href=\"#evidence-zip\">Evidence zip</a>"
-         << "<a class=\"sub\" href=\"#interpreted-values\">Interpreted values</a>"
+         << "<a class=\"sub\" href=\"#container-information\">Container information</a>"
          << "<a class=\"sub\" href=\"#extracted-files\">Extracted files</a>"
+         << "<a href=\"#extraction-results\">Extraction results</a>"
          << "<a href=\"#chain-of-custody\">Chain of custody &amp; integrity</a>"
          << "<a href=\"#log\">Acquisition log</a>"
          << "</nav>";
@@ -98,24 +98,13 @@ void writeHtmlReport(const AcquisitionResult& result, const std::string& htmlPat
 
     html << "<h2 id=\"acquisition-results\">Acquisition results</h2>";
 
-    html << "<h3 id=\"evidence-zip\">Evidence zip</h3><table class=\"meta\">"
+    html << "<h3 id=\"container-information\">Container information</h3><table class=\"meta\">"
          << "<tr><td>File</td><td>" << escapeHtml(zipFileName) << "</td></tr>"
          << "<tr><td>SHA-256</td><td><code>" << zipInfo.sha256 << "</code></td></tr>"
          << "<tr><td>Note</td><td>The zip's own hash cannot be stored inside itself (that would "
             "change the zip and invalidate the hash); this report and manifest.json are the "
             "record of it.</td></tr>"
          << "</table>";
-
-    html << "<h3 id=\"interpreted-values\">Interpreted values</h3>"
-         << "<table><tr><th>Field</th><th>Value</th><th>Status</th><th>Note</th></tr>";
-    for (const auto& field : buildKeyResults(result)) {
-        bool found = field.status == "found";
-        html << "<tr><td>" << field.name << "</td><td><code>"
-             << (found ? escapeHtml(field.value) : "") << "</code></td>"
-             << "<td class=\"" << (found ? "ok" : "") << "\">" << field.status << "</td>"
-             << "<td>" << escapeHtml(field.note) << "</td></tr>";
-    }
-    html << "</table>";
 
     html << "<h3 id=\"extracted-files\">Extracted files (" << result.files.size() << ")</h3>"
          << "<table><tr><th>Path</th><th>File ID</th><th>Structure</th>"
@@ -141,6 +130,17 @@ void writeHtmlReport(const AcquisitionResult& result, const std::string& htmlPat
         if (f.sizeMismatch) html << "size mismatch ";
         if (f.sensitive) html << "cryptographic key material - content withheld from disk ";
         html << "</td></tr>";
+    }
+    html << "</table>";
+
+    html << "<h2 id=\"extraction-results\">Extraction results</h2>"
+         << "<table><tr><th>Field</th><th>Value</th><th>Status</th><th>Note</th></tr>";
+    for (const auto& field : buildKeyResults(result)) {
+        bool found = field.status == "found";
+        html << "<tr><td>" << field.name << "</td><td><code>"
+             << (found ? escapeHtml(field.value) : "") << "</code></td>"
+             << "<td class=\"" << (found ? "ok" : "") << "\">" << field.status << "</td>"
+             << "<td>" << escapeHtml(field.note) << "</td></tr>";
     }
     html << "</table>";
 

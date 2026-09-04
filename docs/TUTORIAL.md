@@ -167,17 +167,18 @@ Use the table of contents at the top to jump around:
 
 - **Case information / Tool provenance** - confirms who ran this, with what
   tool version, on what platform, and the exact executable's own hash.
-- **Acquisition results** - three parts: the evidence zip's own hash (no
-  separate sidecar file - it's just recorded here and in `manifest.json`),
-  **Interpreted values** (ICCID/IMSI/MSISDN/SPN/FPLMN/MCC/MNC/LAC/TAC/CID,
-  always listed with a status even when empty - see [REPORT.md](REPORT.md) for
-  what each status means), and **Extracted files** (every file read off the
-  card, its hash, and its decoded value where applicable). Check the **Flags**
-  column for `structure unknown` or `size mismatch` - these mean that
-  particular file's content might be incomplete or non-standard, and are worth
-  a closer look. A `Kc`/`KcGPRS` row will say "cryptographic key material -
-  content withheld from disk" - that's expected, see the README's "Sensitive
-  values" section.
+- **Acquisition results** - two parts: **Container information** (the evidence
+  zip's own hash - no separate sidecar file, it's just recorded here and in
+  `manifest.json`) and **Extracted files** (every file read off the card, its
+  hash, and its decoded value where applicable). Check the **Flags** column for
+  `structure unknown` or `size mismatch` - these mean that particular file's
+  content might be incomplete or non-standard, and are worth a closer look. A
+  `Kc`/`KcGPRS` row will say "cryptographic key material - content withheld
+  from disk" - that's expected, see the README's "Sensitive values" section.
+- **Extraction results** - ICCID/IMSI/MSISDN/SPN/FPLMN/MCC/MNC/LAC/TAC/CID,
+  always listed with a status even when empty, plus a Note column defining
+  what each field actually means - see [REPORT.md](REPORT.md) for the full
+  status reference.
 - **Chain of custody & integrity** - when, where, on what workstation, with
   what reader, a redacted note if a PIN was entered (never the PIN itself),
   the PIN attempt count *before* it was used, and the verification pass result
