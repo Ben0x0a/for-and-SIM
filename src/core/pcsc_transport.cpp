@@ -1,5 +1,6 @@
 #include "pcsc_transport.h"
 
+#include <algorithm>
 #include <cstdio>
 
 namespace forandsim {
@@ -50,6 +51,28 @@ std::vector<std::string> PcscTransport::listReaders() const {
         p += readers.back().size() + 1;
     }
     return readers;
+}
+
+std::optional<ReaderState> PcscTransport::readerState(const std::string& readerName) const {
+    // HOW: SCARD_STATE_UNAWARE as the "known" state means any actual state
+    // counts as a change, so with a 0 ms timeout the call reports the current
+    // state immediately instead of waiting for an event.
+    // WHY: unlike SCardConnect + SELECT, this never touches the card, so it is
+    // instant and safe to call repeatedly (e.g. polling once a second).
+    SCARD_READERSTATE rs{};
+    rs.szReader = readerName.c_str();
+    rs.dwCurrentState = SCARD_STATE_UNAWARE;
+    LONG rv = SCardGetStatusChange(context_, 0, &rs, 1);
+    // SCARD_E_TIMEOUT is accepted too: some implementations report "nothing
+    // changed within the timeout" while still filling dwEventState.
+    if (rv != SCARD_S_SUCCESS && rv != (LONG)SCARD_E_TIMEOUT) {
+        return std::nullopt;
+    }
+    ReaderState state;
+    state.eventState = rs.dwEventState;
+    size_t atrLen = std::min<size_t>(rs.cbAtr, sizeof(rs.rgbAtr));
+    state.atr.assign(rs.rgbAtr, rs.rgbAtr + atrLen);
+    return state;
 }
 
 void PcscTransport::connect(const std::string& readerName) {

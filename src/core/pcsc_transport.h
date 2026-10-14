@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -27,6 +28,13 @@ private:
     long code_;
 };
 
+// Raw card state of one reader, as reported by SCardGetStatusChange.
+struct ReaderState {
+    DWORD eventState = 0;     // SCARD_STATE_* flags; pcsc-lite also packs a
+                              // card insertion/removal counter in the upper 16 bits
+    std::vector<uint8_t> atr; // empty when no card, or not reported
+};
+
 // Thin RAII wrapper around a PC/SC context + connection to a single reader/card.
 class PcscTransport {
 public:
@@ -38,6 +46,12 @@ public:
 
     // Names of all readers currently visible to the PC/SC subsystem.
     std::vector<std::string> listReaders() const;
+
+    // Current card state of one reader, WITHOUT connecting to it or sending
+    // the card any APDU: answered by the PC/SC service from its own state, so
+    // it returns immediately. nullopt if the service could not report it
+    // (e.g. the reader was unplugged between listReaders() and this call).
+    std::optional<ReaderState> readerState(const std::string& readerName) const;
 
     // Connects to the card in the given reader (shared mode, T=0 protocol).
     void connect(const std::string& readerName);

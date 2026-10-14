@@ -118,8 +118,21 @@ int run(int argc, char** argv) {
                 std::cout << "No PC/SC readers found.\n";
             } else {
                 for (auto& r : readers) {
-                    std::cout << (r.iccid ? *r.iccid : std::string("(no card)")) << "\t"
-                              << r.readerName << "\n";
+                    std::string card;
+                    if (r.iccid) {
+                        card = *r.iccid;
+                    } else if (r.presence == forandsim::CardPresence::Absent) {
+                        card = "(no card)";
+                    } else if (r.presence == forandsim::CardPresence::Present) {
+                        card = "(card detected, ICCID not readable)";
+                    } else if (r.presence == forandsim::CardPresence::Mute) {
+                        card = "(card not responding)";
+                    } else if (r.presence == forandsim::CardPresence::Exclusive) {
+                        card = "(card in use by another application)";
+                    } else {
+                        card = "(no card or not readable)";
+                    }
+                    std::cout << card << "\t" << r.readerName << "\n";
                 }
                 std::cout << "\n(pass the reader name, second column, to --reader)\n";
             }

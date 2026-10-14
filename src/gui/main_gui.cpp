@@ -21,7 +21,7 @@
 #include "imgui_impl_sdl2.h"
 #include "output_paths.h"
 #include "pcsc_transport.h"
-#include "reader_discovery.h"
+#include "reader_monitor.h"
 #include "zip_writer.h"
 
 #ifdef _WIN32
@@ -125,8 +125,17 @@ std::optional<std::string> browseForFolder() {
 
 struct AppState {
     std::vector<std::string> readers;      // actual reader names, used to connect
-    std::vector<std::string> readerLabels; // "<ICCID or (no card)> — <reader name>", for display
+    std::vector<std::string> readerLabels; // "<ICCID or card state> - <reader name>", for display
     int selectedReader = -1;
+    bool userPickedReader = false; // an explicit pick is never overridden by auto-selection
+    bool readersScanned = false;
+    std::string readerSummary;               // e.g. "2 readers, 1 card detected"
+    std::optional<std::string> readerError; // PC/SC service unavailable, etc.
+
+    // Held by every code path that talks to a card (acquisition, PIN check,
+    // the ReaderMonitor's ICCID reads): in shared mode their APDUs would
+    // otherwise interleave on the same card.
+    std::mutex cardIoMutex;
 
     char caseId[128] = "";
     char piece[64] = "";
@@ -158,22 +167,68 @@ struct AppState {
     }
 };
 
-void refreshReaders(AppState& state) {
+std::string readerLabel(const MonitoredReader& r) {
+    std::string card;
+    switch (r.presence) {
+    case CardPresence::Absent: card = "(no card)"; break;
+    case CardPresence::Mute: card = "(card not responding)"; break;
+    case CardPresence::Exclusive: card = "(card in use by another application)"; break;
+    case CardPresence::Present:
+    case CardPresence::Unknown:
+        if (r.iccidState == IccidState::Read) {
+            card = r.iccid;
+        } else if (r.iccidState == IccidState::Pending) {
+            card = r.presence == CardPresence::Present ? "(card detected, reading ICCID...)"
+                                                       : "(checking...)";
+        } else {
+            card = r.presence == CardPresence::Present ? "(card detected, ICCID not readable)"
+                                                       : "(no card or not readable)";
+        }
+        break;
+    }
+    // Plain ASCII separator: Dear ImGui's default font atlas doesn't
+    // include an em-dash glyph, so one would just render as a blank box.
+    return card + " - " + r.readerName;
+}
+
+// Applies a ReaderMonitor snapshot: rebuilds the list and re-selects a reader.
+// WHY auto-select: with two readers (e.g. built-in + USB), always selecting
+// the first one hid a SIM sitting in the second, so it looked undetected.
+void applyReaderSnapshot(AppState& state, const ReaderSnapshot& snap) {
+    std::string previous =
+        state.selectedReader >= 0 ? state.readers[state.selectedReader] : std::string();
+
+    state.readersScanned = snap.scanned;
+    state.readerError = snap.error;
     state.readers.clear();
     state.readerLabels.clear();
-    try {
-        PcscTransport transport;
-        for (auto& r : listReadersWithIccid(transport)) {
-            state.readers.push_back(r.readerName);
-            // Plain ASCII separator: Dear ImGui's default font atlas doesn't
-            // include an em-dash glyph, so one would just render as a blank box.
-            state.readerLabels.push_back((r.iccid ? *r.iccid : std::string("(no card)")) +
-                                          " - " + r.readerName);
+    int cards = 0;
+    for (auto& r : snap.readers) {
+        state.readers.push_back(r.readerName);
+        state.readerLabels.push_back(readerLabel(r));
+        if (r.presence != CardPresence::Absent &&
+            !(r.presence == CardPresence::Unknown && r.iccidState != IccidState::Read)) {
+            ++cards;
         }
-    } catch (const std::exception& e) {
-        state.appendLog(std::string("Failed to list readers: ") + e.what());
     }
-    state.selectedReader = state.readers.empty() ? -1 : 0;
+    state.readerSummary = std::to_string(snap.readers.size()) +
+                          (snap.readers.size() == 1 ? " reader, " : " readers, ") +
+                          std::to_string(cards) + (cards == 1 ? " card" : " cards") + " detected";
+
+    bool stillPlugged = false;
+    for (auto& name : state.readers) stillPlugged |= (name == previous);
+    if (!stillPlugged) state.userPickedReader = false;
+
+    state.selectedReader = pickReader(snap.readers, previous, state.userPickedReader);
+    std::string now = state.selectedReader >= 0 ? state.readers[state.selectedReader] : "";
+    if (now != previous) {
+        // The PIN status shown belonged to the previous reader's card.
+        state.pinStatusText.reset();
+        if (!now.empty() && !previous.empty()) {
+            state.appendLog("Reader selection changed automatically to: " +
+                            state.readerLabels[state.selectedReader]);
+        }
+    }
 }
 
 void openPath(const std::string& path) {
@@ -189,6 +244,7 @@ void openPath(const std::string& path) {
 
 void checkPinStatus(AppState* state, std::string readerName) {
     try {
+        std::lock_guard<std::mutex> cardIo(state->cardIoMutex);
         PcscTransport transport;
         transport.connect(readerName);
         auto attempts = checkChv1AttemptsRemaining(transport);
@@ -228,6 +284,9 @@ void runAcquisition(AppState* state, std::string readerName, output::OutputPaths
         options.scanNonStandardFiles = state->scanNonStandardFiles;
         options.cancelRequested = &state->cancelRequested;
 
+        // Held for the whole run so the ReaderMonitor never sends the card
+        // a SELECT in the middle of the acquisition's own file walk.
+        std::lock_guard<std::mutex> cardIo(state->cardIoMutex);
         PcscTransport transport;
         transport.connect(readerName);
 
@@ -298,8 +357,12 @@ int run() {
     ImGui_ImplOpenGL3_Init(glsl_version);
 
     AppState state;
-    refreshReaders(state);
+    // Declared after `state` so it is destroyed (thread joined) before the
+    // cardIoMutex it references.
+    ReaderMonitor readerMonitor(state.cardIoMutex);
+    readerMonitor.start();
     std::unique_ptr<std::thread> worker;
+    ReaderSnapshot readerSnapshot;
 
     bool done = false;
     while (!done) {
@@ -318,6 +381,10 @@ int run() {
                 }
                 SDL_free(dropped);
             }
+        }
+
+        if (readerMonitor.takeSnapshotIfChanged(readerSnapshot)) {
+            applyReaderSnapshot(state, readerSnapshot);
         }
 
         ImGui_ImplOpenGL3_NewFrame();
@@ -343,9 +410,15 @@ int run() {
 
         ImGui::Text("Reader");
         ImGui::SameLine();
-        if (ImGui::Button("Refresh") && !state.running) refreshReaders(state);
-        if (state.readers.empty()) {
+        // Readers and cards are picked up automatically (ReaderMonitor polls
+        // every second); Refresh only forces an immediate poll and a fresh
+        // ICCID read of every card.
+        if (ImGui::Button("Refresh")) readerMonitor.rescan();
+        if (!state.readersScanned) {
+            ImGui::TextDisabled("Looking for readers...");
+        } else if (state.readers.empty()) {
             ImGui::TextColored(ImVec4(1, 0.5f, 0, 1), "No PC/SC readers detected.");
+            if (state.readerError) ImGui::TextWrapped("(%s)", state.readerError->c_str());
         } else {
             if (ImGui::BeginCombo("##reader", state.selectedReader >= 0
                                                    ? state.readerLabels[state.selectedReader].c_str()
@@ -353,11 +426,15 @@ int run() {
                 for (int i = 0; i < (int)state.readers.size(); ++i) {
                     bool selected = (i == state.selectedReader);
                     if (ImGui::Selectable(state.readerLabels[i].c_str(), selected)) {
+                        if (i != state.selectedReader) state.pinStatusText.reset();
                         state.selectedReader = i;
+                        state.userPickedReader = true;
                     }
                 }
                 ImGui::EndCombo();
             }
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", state.readerSummary.c_str());
         }
 
         ImGui::Separator();

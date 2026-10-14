@@ -55,6 +55,11 @@ This is the point of listing the ICCID: with two readers plugged in, it's easy
 to lose track of which physical reader holds which card by name alone. The GUI's
 reader dropdown shows the same "ICCID - reader name" pairing.
 
+When a card is inserted but its ICCID can't be read, the first column says why
+instead: `(card detected, ICCID not readable)`, `(card not responding)` (the
+card didn't answer reset - check it's inserted the right way and clean), or
+`(card in use by another application)`.
+
 If you see "No PC/SC readers found", check the reader is plugged in and (on Linux)
 that `pcscd` is running. Either way, pick the reader to use with
 `--reader "<exact name>"` (CLI, the second column above) or the dropdown (GUI).
@@ -141,7 +146,15 @@ equivalent yet (Ctrl+C just kills it).
 
 Run `./build/forandsim` with no arguments. Fill in the form top to bottom:
 
-1. Pick your reader from the dropdown (click "Refresh" if it's not listed).
+1. Check the reader dropdown. Readers and cards are picked up automatically
+   (re-checked every second, no need to click "Refresh"): a newly inserted card
+   first shows as `(card detected, reading ICCID...)`, then as its ICCID. With
+   several readers (e.g. a laptop's built-in reader plus a USB one), the reader
+   that holds a card is selected for you; the text next to the dropdown says
+   how many readers and cards were found. Once you pick a reader yourself, it
+   stays selected. "Refresh" forces an immediate re-check and re-reads every
+   ICCID. A USB reader only appears once the operating system has finished
+   loading its driver, which can take a few seconds after plugging it in.
 2. Check **"I am authorized to examine this exhibit"** - the Start button stays
    disabled until you do.
 3. Fill in case identifier, piece/exhibit number, operator, and optionally notes.

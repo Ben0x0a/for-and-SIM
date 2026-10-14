@@ -39,6 +39,7 @@ add_library(forandsim_core STATIC
   src/core/time_utils.cpp
   src/core/platform_info.cpp
   src/core/reader_discovery.cpp
+  src/core/reader_monitor.cpp
   src/core/output/report_common.cpp
   src/core/output/output_paths.cpp
   src/core/output/zip_writer.cpp
@@ -54,6 +55,10 @@ target_include_directories(forandsim_core PUBLIC
   src/core/output
   third_party
 )
+
+# reader_monitor.cpp runs a background polling thread.
+find_package(Threads REQUIRED)
+target_link_libraries(forandsim_core PUBLIC Threads::Threads)
 
 if(WIN32)
   target_link_libraries(forandsim_core PUBLIC winscard)
@@ -148,3 +153,6 @@ enable_testing()
 add_executable(forandsim_output_smoke_test tests/output_smoke_test.cpp)
 target_link_libraries(forandsim_output_smoke_test PRIVATE forandsim_core)
 add_test(NAME output_smoke_test COMMAND forandsim_output_smoke_test)
+add_executable(forandsim_reader_monitor_test tests/reader_monitor_test.cpp)
+target_link_libraries(forandsim_reader_monitor_test PRIVATE forandsim_core)
+add_test(NAME reader_monitor_test COMMAND forandsim_reader_monitor_test)
